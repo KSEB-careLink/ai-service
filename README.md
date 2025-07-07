@@ -28,21 +28,3 @@
 | 파일 저장소 | Firebase Storage |
 | 인증 키 관리 | `dotenv` 환경변수 로딩 (.env) |
 | 기타 | uuid, requests, os, traceback 등 |
-
----
-
-## 📁 프로젝트 구조
-ai_service/
-├── firebase/
-│ └── firebase_init.py # Firebase 초기화
-├── llm/
-│ └── gpt_client.py # GPT 회상 문장 생성
-├── scripts/
-│ └── register_voice.py # 보호자 음성 등록 → voice_id 생성
-├── tts/
-│ ├── init.py
-│ └── elevenlabs_client.py # ElevenLabs TTS 기능
-├── main.py # FastAPI 진입점
-├── .gitignore
-└── README.md
-
