@@ -120,6 +120,13 @@ async def generate_and_read(
     try:
         user_id = "test_user"  # Firebase Auth 연동 전까지는 임시
 
+        # 🔎 Firestore에서 user profile 문서 가져오기
+        profile_doc = db.collection("users").document(user_id).collection("profile").document("info").get()
+        if profile_doc.exists:
+            relationship = profile_doc.to_dict().get("relationship", "보호자")
+        else:
+            relationship = "보호자"  # 기본값
+
         # 1. 보호자 음성 등록
         temp_filename = f"temp_{uuid4().hex}.mp3"
         with open(temp_filename, "wb") as buffer:
@@ -141,7 +148,8 @@ async def generate_and_read(
         선택지: ...
         정답: ...
         """
-        result = generate_reminder(prompt)
+        # ✅ Firestore에서 가져온 relationship 사용
+        result = generate_reminder(prompt, relationship)
         print("🧠 GPT 응답 결과:\n", result)
 
         # 🔧 파싱: 줄 순서 상관없이 안전하게 분리
