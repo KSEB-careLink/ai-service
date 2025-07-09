@@ -17,10 +17,11 @@ def text_to_speech(text: str, voice_id: str, file_name="output.mp3"):
         "model_id": "eleven_multilingual_v2",
         "text": text,
         "voice_settings": {
-            "stability": 0.9,
-            "similarity_boost": 1.0,
-            "style" : 1.0,
-            "speed" : 0.7
+            "stability": 0.35,
+            "similarity_boost": 0.75,
+            "style" : 0.35,
+            "speed" : 1.0,
+            "use_speaker_boost":True
         }
     }
 
