@@ -19,7 +19,8 @@ def text_to_speech(text: str, voice_id: str, file_name="output.mp3"):
         "voice_settings": {
             "stability": 0.9,
             "similarity_boost": 1.0,
-            "style" : 0.3
+            "style" : 1.0,
+            "speed" : 0.7
         }
     }
 
