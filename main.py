@@ -1,18 +1,14 @@
 from firebase.firebase_init import bucket
+from firebase_admin import firestore, storage
 import os
 from uuid import uuid4
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 
 from llm.gpt_client import generate_reminder
 from tts.elevenlabs_client import text_to_speech, create_voice, process_audio_speed
 from scripts.register_voice import register_voice
 
-# 🔥 Firebase 연결
-import firebase.firebase_init  # firebase_init.py에서 초기화
-from firebase_admin import firestore, storage
-
-from fastapi import HTTPException
 import traceback
 from enums import ToneEnum
 

@@ -40,10 +40,6 @@ def generate_reminder(patient_name: str, photo_description: str, relation: str, 
 
     # ✅ prompt를 system_prompt 밖에서 작성
     prompt = f"""
-    당신은 치매 환자의 회상을 도와주는 회상 도우미입니다.
-
-    다음 정보를 바탕으로 회상 문장과 적절한 유형의 객관식 퀴즈 문제를 생성해주세요.
-
     - 환자 이름: {patient_name}
     - 사진 설명: {photo_description}
     - 보호자와의 관계: {relation}
@@ -60,7 +56,7 @@ def generate_reminder(patient_name: str, photo_description: str, relation: str, 
     회상 문장: ...
     퀴즈 유형: ...
     퀴즈 문제: ...
-    선택지: 보기1, 보기2, 보기3, 보기4
+    선택지: 1번, 2번, 3번, 4번
     정답: ...
     """
 
