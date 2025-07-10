@@ -1,81 +1,3 @@
-# import os
-# from pydantic import BaseModel
-# from llm.gpt_client import generate_reminder
-# from tts.elevenlabs_client import text_to_speech, create_voice  # ⬅️ 추가
-# from fastapi import FastAPI, UploadFile, File, Form  # ✅ Form 추가!
-# from scripts.register_voice import register_voice
-# from uuid import uuid4
-
-# app = FastAPI()
-
-# # ✅ 회상 문장 입력용
-# class ReminderInput(BaseModel):
-#     patient_name: str
-#     photo_description: str
-#     tone: str = "다정하게"
-
-# # ✅ TTS 요청용
-# class TTSRequest(BaseModel):
-#     text: str
-#     voice_id: str
-
-# @app.post("/generate-reminder")
-# def create_reminder(input: ReminderInput):
-#     prompt = f"""
-#     다음 정보를 바탕으로 치매 환자에게 다정한 말투로 회상 문장과 간단한 객관식 퀴즈 문제를 함께 만들어주세요.
-
-#     - 환자 이름: {input.patient_name}
-#     - 사진 설명: {input.photo_description}
-
-#     출력 형식:
-#     회상 문장: ...
-#     퀴즈 문제: ...
-#     선택지: ...
-#     정답: ...
-#     """
-
-#     result = generate_reminder(prompt)
-
-#     # 응답 결과를 파싱 (예시 단순 분리)
-#     lines = result.strip().splitlines()
-#     reminder = lines[0].replace("회상 문장:", "").strip()
-#     question = lines[1].replace("퀴즈 문제:", "").strip()
-#     options = lines[2].replace("선택지:", "").strip().split(", ")
-#     answer = lines[3].replace("정답:", "").strip()
-
-#     return {
-#         "reminder": reminder,
-#         "quiz": {
-#             "question": question,
-#             "type": "객관식",
-#             "options": options,
-#             "answer": answer
-#         }
-#     }
-
-# @app.post("/tts")
-# def generate_tts(request: TTSRequest):
-#     filename = text_to_speech(request.text, request.voice_id)
-#     if filename:
-#         return {"message": "TTS 성공", "file": filename}
-#     return {"message": "TTS 실패"}
-
-# # ✅ 보호자 음성 등록 → voice_id 생성 API
-# @app.post("/create-voice")
-# async def upload_protector_voice(name: str = Form(...), file: UploadFile = File(...)):
-#     temp_filename = f"temp_{uuid4().hex}.mp3"
-#     with open(temp_filename, "wb") as buffer:
-#         buffer.write(await file.read())
-
-#     # register_voice 모듈의 함수 사용
-#     new_voice_id = register_voice(temp_filename, name, env_update=True)
-
-#     # temp 파일 삭제
-#     if os.path.exists(temp_filename):
-#         os.remove(temp_filename)
-
-#     return {"message": "Voice 등록 성공", "voice_id": new_voice_id}
-
 from firebase.firebase_init import bucket
 import os
 from uuid import uuid4
@@ -83,7 +5,7 @@ from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel
 
 from llm.gpt_client import generate_reminder
-from tts.elevenlabs_client import text_to_speech, create_voice
+from tts.elevenlabs_client import text_to_speech, create_voice, process_audio_speed
 from scripts.register_voice import register_voice
 
 # 🔥 Firebase 연결
@@ -181,11 +103,13 @@ async def generate_and_read(
         # 3. 회상 문장 mp3 생성
         reminder_mp3 = f"reminder_{uuid4().hex}.mp3"
         text_to_speech(reminder_text, voice_id, reminder_mp3)
+        process_audio_speed(reminder_mp3, reminder_mp3, speed=0.9)
 
         # 4. 퀴즈 문제 mp3 생성
         quiz_text = f"{quiz_question} " + " ".join([f"{i+1}번 {opt}" for i, opt in enumerate(quiz_options)])
         quiz_mp3 = f"quiz_{uuid4().hex}.mp3"
         text_to_speech(quiz_text, voice_id, quiz_mp3)
+        process_audio_speed(quiz_mp3, quiz_mp3, speed=0.9)
 
         # 5. Firebase Storage에 mp3 업로드
         reminder_blob = bucket.blob(f"tts/{user_id}/{reminder_mp3}")

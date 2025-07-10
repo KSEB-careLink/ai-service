@@ -1,6 +1,7 @@
 import os
 import requests
 from dotenv import load_dotenv
+from pydub import AudioSegment
 
 load_dotenv()
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
@@ -17,10 +18,9 @@ def text_to_speech(text: str, voice_id: str, file_name="output.mp3"):
         "model_id": "eleven_multilingual_v2",
         "text": text,
         "voice_settings": {
-            "stability": 0.9,
-            "similarity_boost": 1.0,
-            "style" : 1.0,
-            "speed" : 0.7
+            "stability": 0.35,
+            "similarity_boost": 0.75,
+            "style" : 0.35,
         }
     }
 
@@ -46,3 +46,10 @@ def create_voice(voice_name: str, file_path: str):
     else:
         print("Voice 등록 실패:", response.status_code, response.text)
         return None
+    
+def process_audio_speed(input_path: str, output_path: str, speed=0.90):
+    sound = AudioSegment.from_file(input_path)
+    processed = sound.speedup(playback_speed=speed)
+    processed.export(output_path, format="mp3")
+    print(f"✅ 속도 조절된 파일 저장 완료: {output_path}")
+    return output_path
