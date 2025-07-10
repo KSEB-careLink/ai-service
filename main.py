@@ -15,6 +15,7 @@ from firebase_admin import firestore, storage
 from fastapi import HTTPException
 import traceback
 from enums import ToneEnum
+import shutil
 
 app = FastAPI()
 
@@ -61,32 +62,12 @@ async def generate_and_read(
         os.remove(temp_filename)
 
         # 2. GPT로 회상 문장 + 퀴즈 생성
-        prompt = f"""
-        당신은 치매 환자의 회상을 도와주는 회상 도우미입니다.
-
-        다음 정보를 바탕으로 회상 문장과 적절한 유형의 객관식 퀴즈 문제를 생성해주세요.
-
-        - 환자 이름: {patient_name}
-        - 사진 설명: {photo_description}
-        - 보호자와의 관계: {relationship}
-        - 보호자의 말투: {tone}
-
-        퀴즈 유형은 다음 중 하나를 자동으로 선택해서 생성해주세요:
-        1. 이름 맞추기 – 사진 속 사람, 장소, 물건의 이름을 맞추는 문제
-        2. 시각 회상 – 사진 배경이나 상황을 설명하고 기억을 유도하는 문제
-        3. 자유 회상 – 사진을 보고 떠오를 수 있는 기억을 기반으로 보기 4개를 주고, 가장 관련 있는 것을 고르는 **객관식 퀴즈**로 만들어주세요
-
-        환자가 이해하기 쉽게 다정하고 천천히 말하는 어조로 구성해주세요.
-
-        출력 형식:
-        회상 문장: ...
-        퀴즈 유형: ...
-        퀴즈 문제: ...
-        선택지: 보기1, 보기2, 보기3, 보기4
-        정답: ...
-        """
-        # 이 줄을 수정 👇
-        result = generate_reminder(prompt, relation=relationship, tone=tone)
+        result = generate_reminder(
+            patient_name=patient_name,
+            photo_description=photo_description,
+            relation=relationship,
+            tone=tone
+        )
 
         print("🧠 GPT 응답 결과:\n", result)
 
@@ -109,13 +90,18 @@ async def generate_and_read(
         # 3. 회상 문장 mp3 생성
         reminder_mp3 = f"reminder_{uuid4().hex}.mp3"
         text_to_speech(reminder_text, voice_id, reminder_mp3)
-        process_audio_speed(reminder_mp3, reminder_mp3, speed=0.9)
+        backup_dir = r"C:\Users\hook7\OneDrive\바탕 화면\대학\2025_4학년\부트캠프\ai-service\원본 음성"
+        os.makedirs(backup_dir, exist_ok=True)
+        shutil.copy(reminder_mp3, os.path.join(backup_dir, reminder_mp3))
+        process_audio_speed(reminder_mp3, reminder_mp3, speed=0.8)
 
         # 4. 퀴즈 문제 mp3 생성
         quiz_text = f"{quiz_question} " + " ".join([f"{i+1}번 {opt}" for i, opt in enumerate(quiz_options)])
         quiz_mp3 = f"quiz_{uuid4().hex}.mp3"
         text_to_speech(quiz_text, voice_id, quiz_mp3)
-        process_audio_speed(quiz_mp3, quiz_mp3, speed=0.9)
+        os.makedirs(backup_dir, exist_ok=True)
+        shutil.copy(quiz_mp3, os.path.join(backup_dir, quiz_mp3))
+        process_audio_speed(quiz_mp3, quiz_mp3, speed=0.8)
 
         # 5. Firebase Storage에 mp3 업로드
         reminder_blob = bucket.blob(f"tts/{user_id}/{reminder_mp3}")
@@ -125,6 +111,9 @@ async def generate_and_read(
         quiz_blob = bucket.blob(f"tts/{user_id}/{quiz_mp3}")
         quiz_blob.upload_from_filename(quiz_mp3)
         quiz_url = f"https://storage.googleapis.com/{bucket.name}/tts/{user_id}/{quiz_mp3}"
+
+        backup_dir = "./local_backup"
+        os.makedirs(backup_dir, exist_ok=True)
 
         # 6. Firestore에 문장 + 문제 + mp3 정보 저장
         doc_data = {

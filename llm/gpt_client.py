@@ -6,7 +6,7 @@ from enums import ToneEnum
 load_dotenv()
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def generate_reminder(prompt: str, relation: str, tone: ToneEnum):
+def generate_reminder(patient_name: str, photo_description: str, relation: str, tone: ToneEnum):
     system_prompt = (
         "너는 치매 초기 환자를 위한 회상 도우미야.\n"
         f"사용자는 환자의 {relation}이야.\n"
@@ -25,7 +25,7 @@ def generate_reminder(prompt: str, relation: str, tone: ToneEnum):
         "- 기쁜 감정, 환한 분위기가 느껴지는 말투여야 해.\n"
         "- '~했어요!', '~즐거웠어요!'처럼 느낌표를 적절히 사용해 에너지를 표현해줘.\n"
         "- 긍정적이고 활기찬 단어를 많이 쓰고, 리듬감 있게 말해줘.\n"
-        "- 예: '엄마! 오늘 사진 속 그날 기억나죠? 정말 신났었어요!' \n\n"
+        "- 예: '엄마! 오늘 사진 속 그날 기억나죠? 정말 신났었어요!'\n\n"
 
         "👉 차분하게:\n"
         "- 안정감 있고 잔잔한 분위기가 느껴지는 말투여야 해.\n"
@@ -37,6 +37,32 @@ def generate_reminder(prompt: str, relation: str, tone: ToneEnum):
         "중간중간 자연스럽게 말을 쉬어주는 느낌을 주면 더 좋아.\n"
         "기억을 자극할 수 있는 장소, 분위기, 감정을 꼭 담아줘."
     )
+
+    # ✅ prompt를 system_prompt 밖에서 작성
+    prompt = f"""
+    당신은 치매 환자의 회상을 도와주는 회상 도우미입니다.
+
+    다음 정보를 바탕으로 회상 문장과 적절한 유형의 객관식 퀴즈 문제를 생성해주세요.
+
+    - 환자 이름: {patient_name}
+    - 사진 설명: {photo_description}
+    - 보호자와의 관계: {relation}
+    - 보호자의 말투: {tone}
+
+    퀴즈 유형은 다음 중 하나를 자동으로 선택해서 생성해주세요:
+    1. 이름 맞추기 – 사진 속 사람, 장소, 물건의 이름을 맞추는 문제
+    2. 시각 회상 – 사진 배경이나 상황을 설명하고 기억을 유도하는 문제
+    3. 자유 회상 – 사진을 보고 떠오를 수 있는 기억을 기반으로 보기 4개를 주고, 가장 관련 있는 것을 고르는 **객관식 퀴즈**로 만들어주세요
+
+    환자가 이해하기 쉽게 다정하고 천천히 말하는 어조로 구성해주세요.
+
+    출력 형식:
+    회상 문장: ...
+    퀴즈 유형: ...
+    퀴즈 문제: ...
+    선택지: 보기1, 보기2, 보기3, 보기4
+    정답: ...
+    """
 
     response = client.chat.completions.create(
         model="gpt-4",

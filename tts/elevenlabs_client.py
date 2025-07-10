@@ -47,9 +47,21 @@ def create_voice(voice_name: str, file_path: str):
         print("Voice 등록 실패:", response.status_code, response.text)
         return None
     
-def process_audio_speed(input_path: str, output_path: str, speed=0.90):
-    sound = AudioSegment.from_file(input_path)
-    processed = sound.speedup(playback_speed=speed)
-    processed.export(output_path, format="mp3")
-    print(f"✅ 속도 조절된 파일 저장 완료: {output_path}")
+import subprocess
+
+
+def process_audio_speed(input_path: str, output_path: str, speed=0.8):
+    # 임시 출력 파일
+    tmp_output = f"tmp_{output_path}"
+
+    # ffmpeg 명령어
+    cmd = ["ffmpeg", "-i", input_path, "-filter:a", f"atempo={speed}", tmp_output, "-y"]
+    subprocess.run(cmd, check=True)
+
+    # 기존 파일 덮어쓰기
+    os.replace(tmp_output, output_path)
+
+    print(f"✅ 속도 조절된 파일 저장 완료 (ffmpeg atempo): {output_path}")
     return output_path
+
+
