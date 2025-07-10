@@ -15,7 +15,6 @@ from firebase_admin import firestore, storage
 from fastapi import HTTPException
 import traceback
 from enums import ToneEnum
-import shutil
 
 app = FastAPI()
 
@@ -90,17 +89,12 @@ async def generate_and_read(
         # 3. 회상 문장 mp3 생성
         reminder_mp3 = f"reminder_{uuid4().hex}.mp3"
         text_to_speech(reminder_text, voice_id, reminder_mp3)
-        backup_dir = r"C:\Users\hook7\OneDrive\바탕 화면\대학\2025_4학년\부트캠프\ai-service\원본 음성"
-        os.makedirs(backup_dir, exist_ok=True)
-        shutil.copy(reminder_mp3, os.path.join(backup_dir, reminder_mp3))
         process_audio_speed(reminder_mp3, reminder_mp3, speed=0.8)
 
         # 4. 퀴즈 문제 mp3 생성
         quiz_text = f"{quiz_question} " + " ".join([f"{i+1}번 {opt}" for i, opt in enumerate(quiz_options)])
         quiz_mp3 = f"quiz_{uuid4().hex}.mp3"
         text_to_speech(quiz_text, voice_id, quiz_mp3)
-        os.makedirs(backup_dir, exist_ok=True)
-        shutil.copy(quiz_mp3, os.path.join(backup_dir, quiz_mp3))
         process_audio_speed(quiz_mp3, quiz_mp3, speed=0.8)
 
         # 5. Firebase Storage에 mp3 업로드
