@@ -5,6 +5,7 @@ __pycache__/
 # 환경 설정
 .env
 venv/
+.venv/
 .env.*
 
 # 기타
