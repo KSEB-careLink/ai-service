@@ -31,7 +31,7 @@ def preprocess_for_elevenlabs(input_mp3: str) -> str:
     def apply_voicefixer(wav_path: str) -> str:
         vf = VoiceFixer()
         cleaned_wav = wav_path.replace(".wav", "_vf.wav")
-        vf.restore(input=wav_path, output=cleaned_wav, cuda=False, mode=0)
+        vf.restore(input=wav_path, output=cleaned_wav, cuda=False, mode=1)
         return cleaned_wav
 
     def apply_vad(wav_path: str) -> str:
@@ -85,11 +85,13 @@ async def generate_and_read(
     try:
         user_id = "test_user"
 
-        profile_doc = db.collection("users").document(user_id).collection("profile").document("info").get()
-        if profile_doc.exists:
-            relationship = profile_doc.to_dict().get("relationship", "보호자")
-        else:
-            relationship = "보호자"  # 기본값
+        # ✅ Form으로 받은 relationship을 우선 사용하고, 비어 있으면 Firestore fallback
+        if not relationship:
+            profile_doc = db.collection("users").document(user_id).collection("profile").document("info").get()
+            if profile_doc.exists:
+                relationship = profile_doc.to_dict().get("relationship", "보호자")
+            else:
+                relationship = "어르신"
 
         # 1. 보호자 음성 등록
         temp_filename = f"temp_{uuid4().hex}.mp3"
@@ -154,7 +156,12 @@ async def generate_and_read(
         text_to_speech(reminder_text, voice_id, reminder_mp3)
         process_audio_speed(reminder_mp3, reminder_mp3, speed=0.83)
 
-        quiz_text = f"{quiz_question} " + " ".join([f"{i+1}번 {opt}" for i, opt in enumerate(quiz_options)])
+        readable_nums = {1: "첫 번째", 2: "두 번째", 3: "세 번째", 4: "네 번째"}
+        options_text = "\n".join([
+            f"{readable_nums[i+1]}, {opt}" for i, opt in enumerate(quiz_options)
+        ])
+        quiz_text = f"{quiz_question}\n{options_text}"
+
         quiz_mp3 = f"quiz_{uuid4().hex}.mp3"
         text_to_speech(quiz_text, voice_id, quiz_mp3)
         process_audio_speed(quiz_mp3, quiz_mp3, speed=0.83)
@@ -202,7 +209,7 @@ async def generate_and_read(
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-    
+
 # @app.post("/generate-only")
 # async def generate_only(
 #     patient_name: str = Form(...),
