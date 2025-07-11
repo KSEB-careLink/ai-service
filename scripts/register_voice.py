@@ -2,40 +2,27 @@ import os
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 from io import BytesIO
+from firebase.firebase_init import db  # ✅ Firestore 가져오기
 
 load_dotenv()
-
-# ElevenLabs 클라이언트 초기화
 elevenlabs = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-def update_env_voice_id(new_voice_id: str, env_path=".env"):
-    """ .env 파일에 ELEVENLABS_VOICE_ID를 자동 갱신하는 함수 """
-    with open(env_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
+def update_firestore_voice_id(guardian_uid: str, new_voice_id: str):
+    """ Firestore 보호자 Document에 voiceId 저장 """
+    try:
+        guardian_ref = db.collection("users").document(guardian_uid)
+        guardian_ref.update({"voiceId": new_voice_id})
+        print(f"✅ Firestore에 voiceId 저장 완료! (guardian_uid: {guardian_uid})")
+    except Exception as e:
+        print("❌ Firestore 업데이트 실패:", e)
 
-    found = False
-    for i, line in enumerate(lines):
-        if line.startswith("ELEVENLABS_VOICE_ID="):
-            lines[i] = f"ELEVENLABS_VOICE_ID={new_voice_id}\n"
-            found = True
-            break
-
-    if not found:
-        lines.append(f"\nELEVENLABS_VOICE_ID={new_voice_id}\n")
-
-    with open(env_path, "w", encoding="utf-8") as f:
-        f.writelines(lines)
-
-    print("✅ .env 파일에 Voice ID가 자동으로 갱신되었습니다!")
-
-def register_voice(file_path: str, voice_name: str, env_update: bool = True):
+def register_voice(file_path: str, voice_name: str, guardian_uid: str, save_to_firestore: bool = True):
     """ 
-    음성 파일을 ElevenLabs에 등록하고, 필요하면 .env에 자동 저장하는 함수 
+    음성 파일을 ElevenLabs에 등록하고, Firestore에 voiceId 저장 
     """
     with open(file_path, "rb") as f:
         audio_bytes = BytesIO(f.read())
 
-    # Voice 등록 요청
     voice = elevenlabs.voices.ivc.create(
         name=voice_name,
         files=[audio_bytes]
@@ -45,7 +32,7 @@ def register_voice(file_path: str, voice_name: str, env_update: bool = True):
     print("✅ Voice 등록 완료!")
     print("새 Voice ID:", new_voice_id)
 
-    if env_update:
-        update_env_voice_id(new_voice_id)
+    if save_to_firestore:
+        update_firestore_voice_id(guardian_uid, new_voice_id)
 
     return new_voice_id

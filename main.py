@@ -8,7 +8,7 @@ import traceback
 from enums import ToneEnum
 from llm.gpt_client import generate_reminder
 from scripts.register_voice import register_voice
-from voicefixer import VoiceFixer
+from voicefixer.voicefixer import VoiceFixer
 import subprocess
 import torchaudio
 import torchaudio.transforms as T
@@ -101,7 +101,7 @@ async def generate_and_read(
         cleaned_blob = bucket.blob(f"cleaned_voice/{user_id}/{os.path.basename(cleaned_path)}")
         cleaned_blob.upload_from_filename(cleaned_path)
 
-        voice_id = register_voice(cleaned_path, name)
+        voice_id = register_voice(cleaned_path, name, guardian_uid=user_id)
 
         os.remove(temp_filename)
         try:

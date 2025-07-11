@@ -1,7 +1,7 @@
 # firebase/firebase_init.py
 import os
 import firebase_admin
-from firebase_admin import credentials, storage
+from firebase_admin import credentials, storage, firestore
 
 if not firebase_admin._apps:
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -15,3 +15,6 @@ if not firebase_admin._apps:
 
 # ✅ 초기화 이후에 bucket 선언
 bucket = storage.bucket()
+
+# ✅ Firestore 클라이언트 선언
+db = firestore.client()
