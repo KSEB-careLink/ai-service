@@ -123,8 +123,8 @@ async def generate_and_read(
         reminder_text = ""
         quiz_question = ""
         quiz_options = []
-        capture_options = False
         quiz_answer = ""
+        capture_options = False
 
         for line in result.strip().splitlines():
             line = line.strip()
@@ -133,20 +133,17 @@ async def generate_and_read(
             elif line.startswith("퀴즈 문제:"):
                 quiz_question = line.split("퀴즈 문제:")[1].strip()
             elif line.startswith("선택지:"):
-                # 👇 쉼표 기준으로 split (GPT가 1번, 계곡, 2번, 바다 식으로 응답할 경우 대응)
-                raw = line.replace("선택지:", "").strip()
-                items = re.findall(r"\d+번[.,]?\s*[^,\n]+", raw)
-                for item in items:
-                    opt = re.sub(r"^\d+번[.,]?\s*", "", item).strip()
-                    quiz_options.append(opt)
+                capture_options = True
             elif line.startswith("정답:"):
-                # 정답: 1번, 계곡 → "계곡"만 뽑기
-                ans_raw = line.split("정답:")[1].strip()
-                answer_match = re.match(r"\d+번[.,]?\s*(.+)", ans_raw)
-                if answer_match:
-                    quiz_answer = answer_match.group(1).strip()
+                capture_options = False
+                raw = line.split("정답:")[1].strip()
+                match = re.match(r"\d+번[.,]?\s*(.+)", raw)
+                if match:
+                    quiz_answer = match.group(1).strip()
+                else:
+                    quiz_answer = raw  # 혹시 포맷이 달라도 대비
             elif capture_options:
-                match = re.match(r"^\d+번[.\s]+(.+)", line)
+                match = re.match(r"\d+번[.,]?\s*(.+)", line)
                 if match:
                     quiz_options.append(match.group(1).strip())
 
@@ -155,12 +152,12 @@ async def generate_and_read(
         # 3. mp3 생성
         reminder_mp3 = f"reminder_{uuid4().hex}.mp3"
         text_to_speech(reminder_text, voice_id, reminder_mp3)
-        process_audio_speed(quiz_mp3, quiz_mp3, speed=0.8)
+        process_audio_speed(reminder_mp3, reminder_mp3, speed=0.83)
 
         quiz_text = f"{quiz_question} " + " ".join([f"{i+1}번 {opt}" for i, opt in enumerate(quiz_options)])
         quiz_mp3 = f"quiz_{uuid4().hex}.mp3"
         text_to_speech(quiz_text, voice_id, quiz_mp3)
-        process_audio_speed(quiz_mp3, quiz_mp3, speed=0.8)
+        process_audio_speed(quiz_mp3, quiz_mp3, speed=0.83)
 
         # 4. Firebase 업로드
         reminder_blob = bucket.blob(f"tts/{user_id}/{reminder_mp3}")
@@ -206,90 +203,104 @@ async def generate_and_read(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     
-@app.post("/generate-only")
-async def generate_only(
-    patient_name: str = Form(...),
-    photo_description: str = Form(...),
-    relationship: str = Form(...),
-    tone: ToneEnum = Form(...)
-):
-    try:
-        user_id = "test_user"
+# @app.post("/generate-only")
+# async def generate_only(
+#     patient_name: str = Form(...),
+#     photo_description: str = Form(...),
+#     relationship: str = Form(...),
+#     tone: ToneEnum = Form(...)
+# ):
+#     try:
+#         user_id = "test_user"
 
-        # 회상 문장 및 퀴즈 생성
-        result = generate_reminder(
-            patient_name=patient_name,
-            photo_description=photo_description,
-            relation=relationship,
-            tone=tone
-        )
+#         # 회상 문장 및 퀴즈 생성
+#         result = generate_reminder(
+#             patient_name=patient_name,
+#             photo_description=photo_description,
+#             relation=relationship,
+#             tone=tone
+#         )
 
-        print("🧠 GPT 응답 결과:\n", result)
+#         print("🧠 GPT 응답 결과:\n", result)
 
-        # 파싱
+#         # 파싱
         
-        reminder_text = ""
-        quiz_question = ""
-        quiz_options = []
-        capture_options = False
-        quiz_answer = ""
+#         reminder_text = ""
+#         quiz_question = ""
+#         quiz_options = []
+#         quiz_answer = ""
+#         capture_options = False
 
-        for line in result.strip().splitlines():
-            line = line.strip()
+#         for line in result.strip().splitlines():
+#             line = line.strip()
+#             if line.startswith("회상 문장:"):
+#                 reminder_text = line.split("회상 문장:")[1].strip()
+#             elif line.startswith("퀴즈 문제:"):
+#                 quiz_question = line.split("퀴즈 문제:")[1].strip()
+#             elif line.startswith("선택지:"):
+#                 capture_options = True
+#             elif line.startswith("정답:"):
+#                 capture_options = False
+#                 raw = line.split("정답:")[1].strip()
+#                 match = re.match(r"\d+번[.,]?\s*(.+)", raw)
+#                 if match:
+#                     quiz_answer = match.group(1).strip()
+#                 else:
+#                     quiz_answer = raw  # 혹시 포맷이 달라도 대비
+#             elif capture_options:
+#                 match = re.match(r"\d+번[.,]?\s*(.+)", line)
+#                 if match:
+#                     quiz_options.append(match.group(1).strip())
 
-    # 회상 문장
-            if line.startswith("회상 문장:"):
-                reminder_text = line.split("회상 문장:")[1].strip()
-
-    # 퀴즈 문제
-            elif line.startswith("퀴즈 문제:"):
-                quiz_question = line.split("퀴즈 문제:")[1].strip()
-
-    # 선택지 시작
-            elif line.startswith("선택지:"):
-                capture_options = True
-        # 🧠 선택지가 한 줄에 몰려 있을 수도 있음
-                inline_options = re.findall(r"\d+번[.\s]*([^,\n]+)", line)
-                for opt in inline_options:
-                    quiz_options.append(opt.strip())
-
-    # 정답 줄   
-            elif line.startswith("정답:"):
-                quiz_answer = line.split("정답:")[1].strip()
-                capture_options = False
-
-    # 선택지 줄
-            elif capture_options:
-        # ✅ 1번. 보기 형식 혹은 1번 보기 형식 모두 인식
-                opt_matches = re.findall(r"\d+번[.\s]*(.+)", line)
-                for opt in opt_matches:
-                    quiz_options.append(opt.strip())
+#         # for line in result.strip().splitlines():
+#         #     line = line.strip()
+#         #     if line.startswith("회상 문장:"):
+#         #         reminder_text = line.split("회상 문장:")[1].strip()
+#         #     elif line.startswith("퀴즈 문제:"):
+#         #         quiz_question = line.split("퀴즈 문제:")[1].strip()
+#         #     elif line.startswith("선택지:"):
+#         #         # 👇 쉼표 기준으로 split (GPT가 1번, 계곡, 2번, 바다 식으로 응답할 경우 대응)
+#         #         raw = line.replace("선택지:", "").strip()
+#         #         items = re.findall(r"\d+번[.,]?\s*[^,\n]+", raw)
+#         #         for item in items:
+#         #             opt = re.sub(r"^\d+번[.,]?\s*", "", item).strip()
+#         #             quiz_options.append(opt)
+#         #     elif line.startswith("정답:"):
+#         #         # 정답: 1번, 계곡 → "계곡"만 뽑기
+#         #         ans_raw = line.split("정답:")[1].strip()
+#         #         answer_match = re.match(r"\d+번[.,]?\s*(.+)", ans_raw)
+#         #         if answer_match:
+#         #             quiz_answer = answer_match.group(1).strip()
+#         #     elif capture_options:
+#         #         match = re.match(r"^\d+번[.\s]+(.+)", line)
+#         #         if match:
+#         #             quiz_options.append(match.group(1).strip())
 
 
-        print("🎯 파싱된 선택지 목록:", quiz_options)
+#         print("🎯 파싱된 선택지 목록:", quiz_options)
 
-        if not quiz_answer:
-            raise HTTPException(status_code=400, detail="GPT 응답에 퀴즈 정답이 없습니다.")
+#         if not quiz_answer:
+#             raise HTTPException(status_code=400, detail="GPT 응답에 퀴즈 정답이 없습니다.")
 
-        # Firestore 저장
-        doc_data = {
-            "reminder_text": reminder_text,
-            "quiz_question": quiz_question,
-            "quiz_options": quiz_options,
-            "quiz_answer": quiz_answer,
-            "created_at": firestore.SERVER_TIMESTAMP,
-        }
-        res = db.collection("users").document(user_id).collection("reminders").add(doc_data)
-        print("✅ Firestore 저장 완료:", res)
+#         # Firestore 저장
+#         doc_data = {
+#             "reminder_text": reminder_text,
+#             "quiz_question": quiz_question,
+#             "quiz_options": quiz_options,
+#             "quiz_answer": quiz_answer,
+#             "created_at": firestore.SERVER_TIMESTAMP,
+#         }
+#         res = db.collection("users").document(user_id).collection("reminders").add(doc_data)
+#         print("✅ Firestore 저장 완료:", res)
 
-        return {
-            "message": "문장 및 퀴즈 Firestore 저장 완료",
-            "reminder": reminder_text,
-            "question": quiz_question,
-            "options": quiz_options,
-            "answer": quiz_answer,
-        }
+#         return {
+#             "message": "문장 및 퀴즈 Firestore 저장 완료",
+#             "reminder": reminder_text,
+#             "question": quiz_question,
+#             "options": quiz_options,
+#             "answer": quiz_answer,
+#         }
 
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         traceback.print_exc()
+#         raise HTTPException(status_code=500, detail=str(e))
