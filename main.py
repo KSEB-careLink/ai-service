@@ -20,8 +20,6 @@ app = FastAPI()
 db = firestore.client()
 bucket = storage.bucket()
 
-# ✅ 고급 전처리 함수: VoiceFixer + VAD + mp3 변환
-
 def preprocess_for_elevenlabs(input_mp3: str) -> str:
     def mp3_to_wav(mp3_path: str) -> str:
         wav_path = mp3_path.replace(".mp3", ".wav")
@@ -57,7 +55,6 @@ def preprocess_for_elevenlabs(input_mp3: str) -> str:
     voiced = apply_vad(cleaned)
     final_mp3 = to_final_mp3(voiced)
 
-    # cleanup
     for path in [wav, cleaned, voiced]:
         try: os.remove(path)
         except: pass
@@ -76,6 +73,7 @@ class TTSRequest(BaseModel):
 @app.post("/generate-and-read")
 async def generate_and_read(
     guardian_uid: str = Form(...),
+    patient_uid: str = Form(...),
     name: str = Form(...),
     file: UploadFile = File(...),
     patient_name: str = Form(...),
@@ -84,11 +82,9 @@ async def generate_and_read(
     tone: ToneEnum = Form(...)
 ):
     try:
-        user_id = guardian_uid  # ✅ Node.js에서 검증 후 전달된 uid 사용
-
-        # ✅ Form으로 받은 relationship을 우선 사용하고, 비어 있으면 Firestore fallback
+        # ✅ Form으로 받은 relationship 우선 사용
         if not relationship:
-            profile_doc = db.collection("users").document(user_id).collection("profile").document("info").get()
+            profile_doc = db.collection("users").document(guardian_uid).collection("profile").document("info").get()
             if profile_doc.exists:
                 relationship = profile_doc.to_dict().get("relationship", "보호자")
             else:
@@ -101,10 +97,10 @@ async def generate_and_read(
 
         cleaned_path = preprocess_for_elevenlabs(temp_filename)
 
-        cleaned_blob = bucket.blob(f"cleaned_voice/{user_id}/{os.path.basename(cleaned_path)}")
+        cleaned_blob = bucket.blob(f"cleaned_voice/{guardian_uid}/{os.path.basename(cleaned_path)}")
         cleaned_blob.upload_from_filename(cleaned_path)
 
-        voice_id = register_voice(cleaned_path, name, guardian_uid=user_id)
+        voice_id = register_voice(cleaned_path, name, guardian_uid=guardian_uid)
 
         os.remove(temp_filename)
         try:
@@ -144,7 +140,7 @@ async def generate_and_read(
                 if match:
                     quiz_answer = match.group(1).strip()
                 else:
-                    quiz_answer = raw  # 혹시 포맷이 달라도 대비
+                    quiz_answer = raw
             elif capture_options:
                 match = re.match(r"\d+번[.,]?\s*(.+)", line)
                 if match:
@@ -168,13 +164,14 @@ async def generate_and_read(
         process_audio_speed(quiz_mp3, quiz_mp3, speed=0.83)
 
         # 4. Firebase 업로드
-        reminder_blob = bucket.blob(f"tts/{user_id}/{reminder_mp3}")
+        reminder_blob = bucket.blob(f"tts/{guardian_uid}/{patient_uid}/{reminder_mp3}")
         reminder_blob.upload_from_filename(reminder_mp3)
-        reminder_url = f"https://storage.googleapis.com/{bucket.name}/tts/{user_id}/{reminder_mp3}"
+        reminder_url = f"https://storage.googleapis.com/{bucket.name}/tts/{guardian_uid}/{patient_uid}/{reminder_mp3}"
 
-        quiz_blob = bucket.blob(f"tts/{user_id}/{quiz_mp3}")
+        quiz_blob = bucket.blob(f"tts/{guardian_uid}/{patient_uid}/{quiz_mp3}")
         quiz_blob.upload_from_filename(quiz_mp3)
-        quiz_url = f"https://storage.googleapis.com/{bucket.name}/tts/{user_id}/{quiz_mp3}"
+        quiz_url = f"https://storage.googleapis.com/{bucket.name}/tts/{guardian_uid}/{patient_uid}/{quiz_mp3}"
+
 
         # 5. Firestore 저장
         print("📝 정답 내용 확인:", quiz_answer)
@@ -190,12 +187,13 @@ async def generate_and_read(
             "tts_url": reminder_url,
             "quiz_tts_url": quiz_url,
             "voice_id": voice_id,
+            "guardian_id": guardian_uid,
+            "patient_id": patient_uid,
             "created_at": firestore.SERVER_TIMESTAMP,
         }
-        res= db.collection("users").document(user_id).collection("reminders").add(doc_data)
+        res = db.collection("users").document(patient_uid).collection("reminders").add(doc_data)
         print("✅ Firestore 저장 완료:", res)
 
-        # 6. 정리
         os.remove(reminder_mp3)
         os.remove(quiz_mp3)
 
@@ -205,7 +203,7 @@ async def generate_and_read(
             "question": quiz_question,
             "tts_url": reminder_url,
             "quiz_tts_url": quiz_url,
-            "voice_id": voice_id  # ✅ 반드시 포함!     
+            "voice_id": voice_id
         }
 
     except Exception as e:
