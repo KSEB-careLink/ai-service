@@ -29,10 +29,6 @@ def register_voice(file_path: str, voice_name: str, guardian_uid: str, save_to_f
     )
 
     new_voice_id = voice.voice_id
-    print("✅ Voice 등록 완료!")
-    print("새 Voice ID:", new_voice_id)
-
-    if save_to_firestore:
-        update_firestore_voice_id(guardian_uid, new_voice_id)
+    print("✅ Voice 등록 완료! 새 Voice ID:", new_voice_id)
 
     return new_voice_id
