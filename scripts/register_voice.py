@@ -26,7 +26,7 @@ print("✅ 존재 여부:", os.path.exists(FFMPEG_PATH))
 def update_firestore_voice_id(guardian_uid: str, new_voice_id: str):
     """ Firestore 보호자 Document에 voiceId 저장 """
     try:
-        guardian_ref = db.collection("users").document(guardian_uid)
+        guardian_ref = db.collection("guardians").document(guardian_uid)
         guardian_ref.update({"voiceId": new_voice_id})
         print(f"✅ Firestore에 voiceId 저장 완료! (guardian_uid: {guardian_uid})")
     except Exception as e:
