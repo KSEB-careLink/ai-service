@@ -134,7 +134,7 @@ async def generate_and_read(
             "patient_id": patient_uid,
             "created_at": firestore.SERVER_TIMESTAMP,
         }
-        res = db.collection("users").document(patient_uid).collection("reminders").add(doc_data)
+        res = db.collection("patients").document(patient_uid).collection("reminders").add(doc_data)
         print("✅ Firestore 저장 완료:", res)
 
         os.remove(reminder_mp3)
