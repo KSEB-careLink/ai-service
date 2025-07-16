@@ -8,6 +8,7 @@ import traceback
 from enums import ToneEnum
 from llm.gpt_client import generate_reminder
 from scripts.register_voice import register_voice
+from scripts.register_voice import router as voice_router 
 from voicefixer.voicefixer import VoiceFixer
 import subprocess
 import torchaudio
@@ -20,46 +21,7 @@ app = FastAPI()
 db = firestore.client()
 bucket = storage.bucket()
 
-def preprocess_for_elevenlabs(input_mp3: str) -> str:
-    def mp3_to_wav(mp3_path: str) -> str:
-        wav_path = mp3_path.replace(".mp3", ".wav")
-        subprocess.run(["ffmpeg", "-y", "-i", mp3_path, wav_path], check=True)
-        return wav_path
-
-    def apply_voicefixer(wav_path: str) -> str:
-        vf = VoiceFixer()
-        cleaned_wav = wav_path.replace(".wav", "_vf.wav")
-        vf.restore(input=wav_path, output=cleaned_wav, cuda=False, mode=1)
-        return cleaned_wav
-
-    def apply_vad(wav_path: str) -> str:
-        waveform, sample_rate = torchaudio.load(wav_path)
-        vad = T.Vad(sample_rate=sample_rate)
-        voiced = vad(waveform)
-        voiced_path = wav_path.replace(".wav", "_vad.wav")
-        torchaudio.save(voiced_path, voiced, sample_rate)
-        return voiced_path
-
-    def to_final_mp3(wav_path: str) -> str:
-        mp3_path = wav_path.replace(".wav", "_final.mp3")
-        subprocess.run([
-            "ffmpeg", "-y", "-i", wav_path,
-            "-af", "highpass=f=300, lowpass=f=3000",
-            "-ar", "22050", "-ac", "1", "-b:a", "64k",
-            mp3_path
-        ], check=True)
-        return mp3_path
-
-    wav = mp3_to_wav(input_mp3)
-    cleaned = apply_voicefixer(wav)
-    voiced = apply_vad(cleaned)
-    final_mp3 = to_final_mp3(voiced)
-
-    for path in [wav, cleaned, voiced]:
-        try: os.remove(path)
-        except: pass
-
-    return final_mp3
+app.include_router(voice_router)
 
 class ReminderInput(BaseModel):
     patient_name: str
@@ -74,8 +36,7 @@ class TTSRequest(BaseModel):
 async def generate_and_read(
     guardian_uid: str = Form(...),
     patient_uid: str = Form(...),
-    name: str = Form(...),
-    file: UploadFile = File(...),
+    voice_id: str = Form(...),  # ✅ Node.js에서 가져와 전달
     patient_name: str = Form(...),
     photo_description: str = Form(...),
     relationship: str = Form(...),
@@ -90,25 +51,7 @@ async def generate_and_read(
             else:
                 relationship = "어르신"
 
-        # 1. 보호자 음성 등록
-        temp_filename = f"temp_{uuid4().hex}.mp3"
-        with open(temp_filename, "wb") as buffer:
-            buffer.write(await file.read())
-
-        cleaned_path = preprocess_for_elevenlabs(temp_filename)
-
-        cleaned_blob = bucket.blob(f"cleaned_voice/{guardian_uid}/{os.path.basename(cleaned_path)}")
-        cleaned_blob.upload_from_filename(cleaned_path)
-
-        voice_id = register_voice(cleaned_path, name, guardian_uid=guardian_uid)
-
-        os.remove(temp_filename)
-        try:
-            os.remove(cleaned_path)
-        except FileNotFoundError:
-            print(f"파일 삭제 실패: {cleaned_path}")
-
-        # 2. 회상 문장 및 퀴즈 생성
+        # 1. 회상 문장 및 퀴즈 생성
         result = generate_reminder(
             patient_name=patient_name,
             photo_description=photo_description,
@@ -148,7 +91,7 @@ async def generate_and_read(
 
         print("🎯 파싱된 선택지 목록:", quiz_options)
 
-        # 3. mp3 생성
+        # 2. mp3 생성
         reminder_mp3 = f"reminder_{uuid4().hex}.mp3"
         text_to_speech(reminder_text, voice_id, reminder_mp3)
         process_audio_speed(reminder_mp3, reminder_mp3, speed=0.83)
@@ -163,7 +106,7 @@ async def generate_and_read(
         text_to_speech(quiz_text, voice_id, quiz_mp3)
         process_audio_speed(quiz_mp3, quiz_mp3, speed=0.83)
 
-        # 4. Firebase 업로드
+        # 3. Firebase Storage 업로드
         reminder_blob = bucket.blob(f"tts/{guardian_uid}/{patient_uid}/{reminder_mp3}")
         reminder_blob.upload_from_filename(reminder_mp3)
         reminder_url = f"https://storage.googleapis.com/{bucket.name}/tts/{guardian_uid}/{patient_uid}/{reminder_mp3}"
@@ -173,7 +116,7 @@ async def generate_and_read(
         quiz_url = f"https://storage.googleapis.com/{bucket.name}/tts/{guardian_uid}/{patient_uid}/{quiz_mp3}"
 
 
-        # 5. Firestore 저장
+        # 4. Firestore 저장
         print("📝 정답 내용 확인:", quiz_answer)
 
         if not quiz_answer:
