@@ -2,11 +2,41 @@ import os
 import openai
 from dotenv import load_dotenv
 from enums import ToneEnum
+import json
 
 load_dotenv()
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+def extract_terms(photo_description: str):  # ✅ 여기서 매개변수로 photo_description 받음
+    prompt_extract = f"""
+아래 설명에서 등장하는 '인물', '장소', '사물'만 뽑아 JSON 배열로 출력해.
+⚠️ 설명에 실제로 쓰인 단어만 넣어. 새로운 단어나 창작한 내용은 절대 넣지 마.
+⚠️ 반드시 JSON 배열로만 출력해. 다른 설명은 하지 마.
+
+설명: "{photo_description}"
+
+출력 예시:
+["아버지", "바닷가", "모래성"]
+"""
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt_extract}]
+    )
+    content = response.choices[0].message.content.strip()
+    try:
+        allowed_terms = json.loads(content)
+        if not isinstance(allowed_terms, list):
+            allowed_terms = []
+    except json.JSONDecodeError:
+        allowed_terms = []
+    return allowed_terms
+
 def generate_reminder(patient_name: str, photo_description: str, relation: str, tone: ToneEnum):
+
+    allowed_terms = extract_terms(photo_description)
+    if not allowed_terms:
+        allowed_terms = [relation]
+
     system_prompt = (
         "너는 치매 환자에게 따뜻한 회상 문장을 건네는 도우미야.\n"
         "너는 지금 보호자의 입장에서 환자에게 직접 말하고 있어.\n"
@@ -47,8 +77,13 @@ def generate_reminder(patient_name: str, photo_description: str, relation: str, 
         "그리고 문장은 너무 길지 않게, 말 끝은 쉼표(,)나 줄임표(…)를 활용해서 부드럽게 마무리해줘.\n"
         "중간중간 자연스럽게 말을 쉬어주는 느낌을 주면 더 좋아.\n"
         "기억을 자극할 수 있는 장소, 분위기, 감정을 꼭 담아줘."
-    )
 
+        "⚠️ 아주 중요한 규칙:\n"
+        "- 설명에 등장하지 않는 사람 이름, 장소, 사물, 사건은 절대 추가하지 마.\n"
+        "- 설명에 누가 같이 있었다는 정보가 없으면, 같이 있었다고 말하지 마.\n"
+        "- '우리가', '함께', '같이', '다 함께'와 같은 표현을 사용하지 마.\n"
+
+    )
     # ✅ prompt를 system_prompt 밖에서 작성
     prompt = f"""
     - 환자 이름: {patient_name}
@@ -88,6 +123,18 @@ def generate_reminder(patient_name: str, photo_description: str, relation: str, 
     - "나", "너"와 같은 1인칭/2인칭 표현 대신, 사람 이름이나 관계(예: 오빠, 엄마 등)를 사용해주세요.
     - 환자의 이름이 보기로 포함되지 않도록 해주세요.
     - 모든 보기는 환자의 입장에서 **타인을 지칭하는 방식**으로 명확하게 표현해주세요.
+    ❗ 아주 중요한 규칙:
+    - 사진 설명에 등장하지 않는 사람 이름, 장소, 사물, 사건은 절대 새로 만들어내지 마세요.
+    - 사진 설명에 포함된 정보와 관계(`relation`)만 사용하여 회상 문장과 퀴즈를 작성하세요.
+    - 다음 단어들만 사용해서 회상 문장과 퀴즈를 만들어. ⚠️ 이 단어들 외에 새로운 인물, 장소, 사물을 절대 넣지 마. 단어 목록: {allowed_terms}
+
+    예시 입력값:
+    언제: 봄날
+    어디서: 전주 한옥 마을에서 
+    어떻게: 내가 한복을
+    무엇을: 입고 
+    가장 기억에 남는 것: 활짝 웃었다. 이 사진을 엄마가 이쁘다고 했다.
+    라는 보기가 있다고 가정을 했을 때 여기서 엄마는 한옥에 갔는지 안 갔는지 모르니까 함부로 갔다고 집어 넣으면 안돼
 
     예시 (좋은 보기):
     1번. 오빠  
@@ -110,3 +157,13 @@ def generate_reminder(patient_name: str, photo_description: str, relation: str, 
         ]
     )
     return response.choices[0].message.content
+
+def generate_reminder_simple(photo_description: str, relation: str):
+    # 내부에서 기존 함수에 기본값을 넣어 호출
+    return generate_reminder(
+        patient_name="",
+        photo_description=photo_description,
+        relation=relation,
+        tone=ToneEnum.kind  # tone이 Enum이면 적절한 기본값 넣기
+    )
+
