@@ -8,7 +8,7 @@ import traceback
 from enums import ToneEnum
 from llm.gpt_client import generate_reminder
 from scripts.register_voice import register_voice
-from voicefixer.voicefixer import VoiceFixer
+from voicefixer import VoiceFixer
 import subprocess
 import torchaudio
 import torchaudio.transforms as T
