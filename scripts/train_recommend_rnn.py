@@ -5,8 +5,11 @@ from torch.utils.data import Dataset, DataLoader
 import torch.optim as optim
 import os
 
-data_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'results.json')
-with open('results.json', 'r', encoding='utf-8') as f:
+base_dir = os.path.dirname(os.path.abspath(__file__))   
+data_path = os.path.join(base_dir, '..', 'data', 'results.json')  
+data_path = os.path.normpath(data_path)
+
+with open(data_path, 'r', encoding='utf-8') as f:
     data = json.load(f)
 
 features = []
@@ -15,16 +18,16 @@ labels = []
 for item in data:
     q_id = item["question_id"]
     correct = 1 if item["correct"] else 0
-    time_taken = item.get("time_taken", 0)  
+    time_taken = item.get("time_taken", 0)
 
     features.append([q_id, correct, time_taken])
     labels.append(q_id)
 
-X_tensor = torch.tensor(features, dtype=torch.float32)  
-Y_tensor = torch.tensor(labels, dtype=torch.long)       
+X_tensor = torch.tensor(features, dtype=torch.float32)
+Y_tensor = torch.tensor(labels, dtype=torch.long)
 
-print("✅ X_tensor:", X_tensor.shape)  
-print("✅ Y_tensor:", Y_tensor.shape)  
+print("✅ X_tensor:", X_tensor.shape)
+print("✅ Y_tensor:", Y_tensor.shape)
 
 class QuizResultDataset(Dataset):
     def __init__(self, X, Y):
@@ -43,20 +46,18 @@ class RecommendRNN(nn.Module):
         super(RecommendRNN, self).__init__()
         self.rnn = nn.LSTM(input_dim, hidden_dim, batch_first=True)
         self.fc = nn.Linear(hidden_dim, output_dim)
-
     def forward(self, x):
-        x = x.unsqueeze(1)  
+        x = x.unsqueeze(1) 
         out, (h_n, c_n) = self.rnn(x)
-        out = self.fc(h_n[-1]) 
+        out = self.fc(h_n[-1])  
         return out
 
-input_dim = 3      
+input_dim = 3
 hidden_dim = 64
-output_dim = max(labels) + 1  
-
+output_dim = max(labels) + 1 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = RecommendRNN(input_dim, hidden_dim, output_dim).to(device)
 
+model = RecommendRNN(input_dim, hidden_dim, output_dim).to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -76,7 +77,8 @@ for epoch in range(epochs):
         total_loss += loss.item()
     print(f"[Epoch {epoch+1}/{epochs}] Loss: {total_loss/len(dataloader):.4f}")
 
-model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'quiz_recommend_rnn.pth')
+model_path = os.path.join(base_dir, '..', 'models', 'quiz_recommend_rnn.pth')
+model_path = os.path.normpath(model_path)
 torch.save(model.state_dict(), model_path)
 
-print("🎉 학습 완료! quiz_recommend_rnn.pth 로 저장되었습니다.")
+print(f"🎉 학습 완료! {model_path} 로 저장되었습니다.")
