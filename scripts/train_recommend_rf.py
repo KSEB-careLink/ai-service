@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import LabelEncoder
 
+# 🔹 파일 경로 설정
 base_dir = os.path.dirname(os.path.abspath(__file__))
 results_path = os.path.join(base_dir, '..', 'data', 'results.json')
 topic_mapping_path = os.path.join(base_dir, '..', 'models', 'question_topics.json')
@@ -19,6 +20,15 @@ with open(results_path, 'r', encoding='utf-8') as f:
 with open(topic_mapping_path, 'r', encoding='utf-8') as f:
     topic_mapping = json.load(f)
 
+# 🔹 user_id와 topic 인코더 준비
+user_ids = list(set(r.get("user_id", "default") for r in results))
+user_encoder = LabelEncoder()
+user_encoder.fit(user_ids)
+
+all_topics = list(set(topic_mapping.values()))
+topic_encoder = LabelEncoder()
+topic_encoder.fit(all_topics)
+
 # 🔹 시간 기반 전처리를 위한 정렬 및 준비
 results.sort(key=lambda x: (x.get("user_id", "default"), x.get("timestamp", "")))
 
@@ -30,12 +40,11 @@ user_prev_correct = {}  # { user_id: 이전 정답 여부 }
 X = []
 y = []
 
-all_topics = list(set(topic_mapping.values()))
-topic_encoder = LabelEncoder()
-topic_encoder.fit(all_topics)
-
+# 🔹 학습 데이터 생성
 for r in results:
     user_id = r.get("user_id", "default")
+    user_encoded = user_encoder.transform([user_id])[0]
+
     qid = str(r["question_id"])
     topic_str = topic_mapping.get(qid, "기타")
     topic_num = topic_encoder.transform([topic_str])[0]
@@ -74,10 +83,11 @@ for r in results:
 
     # 🔹 previous_correct 계산
     prev = user_prev_correct.get(user_id, 0)
-    user_prev_correct[user_id] = correct  # 이번 정답 여부 저장
+    user_prev_correct[user_id] = correct
 
-    # 🔹 학습 데이터 포맷 추가
-    X.append([int(qid), topic_num, time_taken, day_index, seq_id, prev])
+    # 🔹 feature vector
+    features = [user_encoded, int(qid), topic_num, time_taken, day_index, seq_id, prev]
+    X.append(features)
     y.append(correct)
 
 print(f"✅ 총 데이터 개수: {len(X)}")
@@ -92,10 +102,11 @@ y_pred = model.predict(X_test)
 acc = accuracy_score(y_test, y_pred)
 print(f"🎯 테스트 세트 정확도: {acc:.4f}")
 
-# 🔹 모델 저장
+# 🔹 모델 저장 (user_encoder 추가)
 joblib.dump({
     "model": model,
-    "topic_encoder": topic_encoder
+    "topic_encoder": topic_encoder,
+    "user_encoder": user_encoder
 }, model_output_path)
 
 print(f"✅ 모델이 {model_output_path} 에 저장되었습니다.")
