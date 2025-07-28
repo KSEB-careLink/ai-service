@@ -6,7 +6,7 @@ from firebase_admin import credentials, storage, firestore
 if not firebase_admin._apps:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     json_path = os.path.join(base_dir, "serviceAccountKey.json")
-    cred = credentials.Certificate(json_path)
+    cred = credentials.Certificate("/etc/secrets/serviceAccountKey.json")
 
     # ✅ 먼저 초기화
     firebase_admin.initialize_app(cred, {
