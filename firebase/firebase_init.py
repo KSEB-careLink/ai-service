@@ -10,7 +10,7 @@ if not firebase_admin._apps:
 
     # ✅ 먼저 초기화
     firebase_admin.initialize_app(cred, {
-        "storageBucket": "carelink-a228a.firebasestorage.app"
+        "storageBucket": "carelink-a228a.appspot.com"
     })
 
 # ✅ 초기화 이후에 bucket 선언
