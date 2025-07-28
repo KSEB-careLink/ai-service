@@ -8,7 +8,7 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from uuid import uuid4
 import traceback
 
-from voicefixer.voicefixer import VoiceFixer
+from voicefixer import VoiceFixer
 import subprocess
 import torchaudio
 import torchaudio.transforms as T
