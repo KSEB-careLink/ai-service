@@ -9,6 +9,10 @@ from routes.quiz import router as quiz_router
 
 app = FastAPI()
 
+@app.get("/")
+def root():
+    return {"message": "CareLink Server is Live!"}
+
 # Firebase 초기화
 db = firestore.client()
 bucket = bucket

@@ -1,5 +1,5 @@
 import os
-
+import shutil
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 from io import BytesIO
@@ -8,7 +8,7 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from uuid import uuid4
 import traceback
 
-from voicefixer.voicefixer import VoiceFixer
+from voicefixer import VoiceFixer
 import subprocess
 import torchaudio
 import torchaudio.transforms as T
@@ -18,10 +18,12 @@ router = APIRouter()
 load_dotenv()
 elevenlabs = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-# ✅ ffmpeg 절대 경로
-FFMPEG_PATH = "C:/Program Files/ffmpeg-7.0.2-essentials_build/ffmpeg-7.0.2-essentials_build/bin/ffmpeg.exe"  # ← 본인 PC의 경로로 수정
+# ✅ ffmpeg 경로
+FFMPEG_PATH = os.path.join(os.path.dirname(__file__), "..", "bin", "ffmpeg")
+if not os.path.exists(FFMPEG_PATH):
+    FFMPEG_PATH = shutil.which("ffmpeg") or "ffmpeg"
+
 print("✅ FFMPEG_PATH:", FFMPEG_PATH)
-print("✅ 존재 여부:", os.path.exists(FFMPEG_PATH))
 
 def update_firestore_voice_id(guardian_uid: str, new_voice_id: str):
     """ Firestore 보호자 Document에 voiceId 저장 """

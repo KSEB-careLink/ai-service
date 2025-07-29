@@ -147,6 +147,10 @@ def generate_reminder(patient_name: str, photo_description: str, relation: str, 
     2번. 너  
     3번. 유타  
     4번. 보호자
+
+    ❗ 추가 규칙:
+    - 사진 설명에 포함된 단어(사물/활동)를 그대로 정답으로 사용하지 마.
+    - 사진에 바로 보이는 사물이나 행동이 답이 되지 않도록 다른 연관된 맥락으로 퀴즈를 만들어.
     """
 
     response = client.chat.completions.create(
