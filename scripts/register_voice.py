@@ -7,23 +7,23 @@ from firebase.firebase_init import db, bucket
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from uuid import uuid4
 import traceback
-
-from voicefixer import VoiceFixer
 import subprocess
 import torchaudio
 import torchaudio.transforms as T
+from voicefixer import VoiceFixer
 
 router = APIRouter()
 
+# 🔑 환경 변수 로딩
 load_dotenv()
 elevenlabs = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-# ✅ ffmpeg 경로
-FFMPEG_PATH = os.path.join(os.path.dirname(__file__), "..", "bin", "ffmpeg")
-if not os.path.exists(FFMPEG_PATH):
-    FFMPEG_PATH = shutil.which("ffmpeg") or "ffmpeg"
+# ✅ 시스템에 설치된 ffmpeg 경로 사용
+FFMPEG_PATH = shutil.which("ffmpeg")
+if not FFMPEG_PATH:
+    raise RuntimeError("❌ ffmpeg not found in system PATH")
 
-print("✅ FFMPEG_PATH:", FFMPEG_PATH)
+print("✅ Using ffmpeg at:", FFMPEG_PATH)
 
 def update_firestore_voice_id(guardian_uid: str, new_voice_id: str):
     """ Firestore 보호자 Document에 voiceId 저장 """
@@ -80,14 +80,18 @@ def preprocess_for_elevenlabs(input_mp3: str) -> str:
         ], check=True)
         return mp3_path
 
+    # 🧪 순차적 처리
     wav = mp3_to_wav(input_mp3)
     cleaned = apply_voicefixer(wav)
     voiced = apply_vad(cleaned)
     final_mp3 = to_final_mp3(voiced)
 
+    # ✅ 임시 파일 삭제
     for path in [wav, cleaned, voiced]:
-        try: os.remove(path)
-        except: pass
+        try:
+            os.remove(path)
+        except:
+            pass
 
     return final_mp3
 
@@ -101,6 +105,7 @@ async def register_voice_endpoint(
     cleaned_path = None
 
     try:
+        # ✅ 업로드된 파일 저장
         with open(temp_filename, "wb") as buffer:
             buffer.write(await file.read())
 
@@ -127,6 +132,7 @@ async def register_voice_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
     finally:
+        # ✅ 임시 파일 정리
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
         if cleaned_path and os.path.exists(cleaned_path):
