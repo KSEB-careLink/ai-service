@@ -18,7 +18,8 @@ torch==2.7.1
 torchvision==0.22.1
 
 # 🔊 음성 복원
-voicefixer @ git+https://github.com/haoheliu/voicefixer.git@aae2253c85f97a87b844b6832384de249c23ab37
+voicefixer @ 
+./wheels/voicefixer-0.1.2-py3-none-any.whl
 
 # 📈 데이터 분석 및 추천
 scikit-learn==1.7.0
