@@ -12,10 +12,8 @@ WORKDIR /app
 
 # 4. 의존성 복사 및 설치
 COPY requirements.txt .
+COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. 전체 프로젝트 복사
-COPY . .
-
-# 6. FastAPI 실행
+# 5. FastAPI 실행
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
