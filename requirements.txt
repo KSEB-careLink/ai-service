@@ -17,9 +17,6 @@ torchaudio==2.7.1
 torch==2.7.1
 torchvision==0.22.1
 
-# 🔊 음성 복원
-./voicefixer-0.1.2-py3-none-any.whl
-
 # 📈 데이터 분석 및 추천
 scikit-learn==1.7.0
 joblib==1.5.1
