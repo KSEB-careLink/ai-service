@@ -1,5 +1,5 @@
 # routes/quiz.py
-from fastapi import APIRouter, Form, HTTPException
+from fastapi import APIRouter, Form, HTTPException, UploadFile, File
 from firebase_admin import firestore, storage
 from firebase.firebase_init import bucket
 from uuid import uuid4
@@ -10,7 +10,6 @@ import os
 import re
 
 router = APIRouter()
-
 db = firestore.client()
 
 @router.post("/generate-quiz")
@@ -21,10 +20,16 @@ async def generate_quiz_endpoint(
     photo_description: str = Form(...),
     relationship: str = Form(...),
     tone: ToneEnum = Form(...),
-    voice_id: str = Form(...)
+    voice_id: str = Form(...),
+    image: UploadFile = File(...)  # ✅ 이미지 파일 추가
 ):
     try:
-        result = generate_quiz_only(patient_name, photo_description, relationship, tone)
+        # ✅ 이미지 임시 저장
+        image_path = f"/tmp/{uuid4().hex}_{image.filename}"
+        with open(image_path, "wb") as f:
+            f.write(await image.read())
+
+        result = generate_quiz_only(patient_name, photo_description, relationship, tone, image_path)
 
         quiz_question = ""
         quiz_options = []
@@ -63,6 +68,7 @@ async def generate_quiz_endpoint(
         quiz_url = f"https://storage.googleapis.com/{bucket.name}/tts/quiz/{guardian_uid}/{patient_uid}/{quiz_mp3}"
 
         os.remove(quiz_mp3)
+        os.remove(image_path)  # ✅ 이미지 정리
 
         return {
             "message": "퀴즈 생성 완료",
