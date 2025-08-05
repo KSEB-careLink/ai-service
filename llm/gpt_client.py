@@ -125,7 +125,7 @@ allowed_terms: {allowed_terms}
     )
     return response.choices[0].message.content.strip()
 
-def generate_quiz_only(photo_description: str, relation: str, tone: ToneEnum, image_path: str):
+def generate_quiz_only(patient_name, photo_description: str, relation: str, tone: ToneEnum, image_path: str):
     allowed_terms = extract_terms(photo_description)
     if not allowed_terms:
         allowed_terms = [relation]
@@ -137,6 +137,8 @@ def generate_quiz_only(photo_description: str, relation: str, tone: ToneEnum, im
 
 📸 사진 설명은 다음과 같아. 이 내용을 참고해서 문장을 구성해:
 "{photo_description}"
+
+- 환자의 이름은 "{patient_name}"이지만 직접 쓰지 말고, "{relation}"이라는 호칭만 자연스럽게 사용하세요.
 
 ## ❗ 창작 금지 규칙
 - **설명에 등장하지 않은 인물, 장소, 사물은 절대 추가하지 마세요.**

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Form, HTTPException
 from firebase_admin import firestore, storage
 from firebase.firebase_init import bucket
 from uuid import uuid4
-from llm.gpt_client import generate_reminder
+from llm.gpt_client import generate_quiz_only
 from tts.elevenlabs_client import text_to_speech, process_audio_speed
 from enums import ToneEnum
 import os
@@ -24,7 +24,7 @@ async def generate_quiz_endpoint(
     voice_id: str = Form(...)
 ):
     try:
-        result = generate_reminder(patient_name, photo_description, relationship, tone)
+        result = generate_quiz_only(patient_name, photo_description, relationship, tone)
 
         quiz_question = ""
         quiz_options = []
