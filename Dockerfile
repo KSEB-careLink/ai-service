@@ -1,19 +1,21 @@
-# 1. Python 3.11 slim 버전 사용
 FROM python:3.11-slim
 
-# 2. 시스템 패키지 설치 (ffmpeg + librosa용 의존성 + git)
+# ffmpeg 등 시스템 패키지 설치
 RUN apt-get update && \
     apt-get install -y ffmpeg libsndfile1 git && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# 3. 작업 디렉토리 설정
 WORKDIR /app
 
-# 4. 의존성 복사 및 설치
-COPY requirements.txt .
-COPY . .
+# ✅ requirements 및 wheel 먼저 복사
+COPY requirements.txt ./
+COPY voicefixer-*.whl ./  # ← 이거 맞습니다! (와일드카드 OK)
+
+# ✅ 의존성 설치 (캐시 타게)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. FastAPI 실행
+# ✅ 전체 소스 복사는 마지막에 (캐시 보호)
+COPY . .
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
