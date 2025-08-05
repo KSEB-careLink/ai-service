@@ -13,6 +13,10 @@ app = FastAPI()
 def root():
     return {"message": "CareLink Server is Live!"}
 
+@app.get("/healthz")
+def health_check():
+    return {"status": "ok"}
+
 # Firebase 초기화
 db = firestore.client()
 bucket = bucket
