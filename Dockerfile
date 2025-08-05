@@ -14,9 +14,12 @@ COPY voicefixer-*.whl ./
 
 # 의존성 설치 (캐시 없이)
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install voicefixer-*.whl
 
 # 전체 소스 복사 (가장 마지막 단계에 — 캐시 이점 최대화)
 COPY . .
+
+EXPOSE 8000
 
 # uvicorn 실행 명령 (FastAPI)
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
