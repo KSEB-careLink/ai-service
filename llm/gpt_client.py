@@ -37,7 +37,7 @@ def extract_visible_terms_from_image(image_path: str):
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
     response = client.chat.completions.create(
-        model="gpt-4-vision-preview",
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": "이미지를 보고, 눈에 보이는 '인물', '장소', '사물', '행동'을 한국어로 JSON 배열로 출력해줘. 감정, 추측, 설명은 넣지 마."},
             {
@@ -212,17 +212,29 @@ tone: {tone.value}
     - ✅ 허용 예시:  
         질문: 그날 함께 있었던 사람 중 한 명은 누구였나요?  
         → 정답: 친구1 (환자 본인 외 인물)
-형식:
-질문  
+형식 예시 (아래 형식을 반드시 그대로 따라야 해요. 질문, 선택지, 정답은 각각 꼭 새로운 줄에 분리해서 작성하세요):
+
+퀴즈 문제: 질문 내용  
 선택지:  
 1번. 보기1  
 2번. 보기2  
 3번. 보기3  
 4번. 보기4  
-정답: [번호]. [정답 보기 텍스트]
+정답: 2번. 보기2
 
 ---
-🧠 마지막으로, 위 회상 문장을 바탕으로 퀴즈를 총 3개 만들어줘. 위 형식을 그대로 반복해서 퀴즈 1, 2, 3으로 출력해줘.
+
+🧠 마지막으로, 위 회상 문장을 바탕으로 퀴즈를 총 3개 만들어줘.  
+각 퀴즈는 반드시 아래 구조를 **한 세트로 반복해서 출력**해줘. 줄 순서를 꼭 지켜야 해:
+
+퀴즈 문제: ...  
+선택지:  
+1번. ...  
+2번. ...  
+3번. ...  
+4번. ...  
+정답: ...  
+
 """
 
     response = client.chat.completions.create(

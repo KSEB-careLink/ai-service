@@ -6,7 +6,7 @@ from firebase.firebase_init import bucket
 from scripts.register_voice import router as voice_router
 from routes.reminder import router as reminder_router
 from routes.quiz import router as quiz_router
-
+from routes.speech import router as speech_router 
 app = FastAPI()
 
 @app.get("/")
@@ -25,6 +25,7 @@ bucket = bucket
 app.include_router(voice_router)
 app.include_router(reminder_router)
 app.include_router(quiz_router)
+app.include_router(speech_router)
 
 if __name__ == "__main__":
     import uvicorn

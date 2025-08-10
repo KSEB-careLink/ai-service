@@ -16,3 +16,12 @@ venv/
 firebase/serviceAccountKey.json
 voicefixer/
 ffmpeg-release-amd64-static/
+
+# TTS/임시 오디오
+*.mp3
+*.wav
+speech_*.mp3
+quiz_*.mp3
+reminder_*.mp3
+temp_*.wav
+tmp_*.mp3

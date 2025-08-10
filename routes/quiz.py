@@ -1,4 +1,3 @@
-# routes/quiz.py
 from fastapi import APIRouter, Form, HTTPException, UploadFile, File
 from firebase_admin import firestore, storage
 from firebase.firebase_init import bucket
@@ -8,6 +7,7 @@ from tts.elevenlabs_client import text_to_speech, process_audio_speed
 from enums import ToneEnum
 import os
 import re
+import tempfile
 
 router = APIRouter()
 db = firestore.client()
@@ -21,61 +21,83 @@ async def generate_quiz_endpoint(
     relationship: str = Form(...),
     tone: ToneEnum = Form(...),
     voice_id: str = Form(...),
-    image: UploadFile = File(...)  # ✅ 이미지 파일 추가
+    image: UploadFile = File(...)
 ):
     try:
         # ✅ 이미지 임시 저장
-        image_path = f"/tmp/{uuid4().hex}_{image.filename}"
+        ext = os.path.splitext(image.filename)[1]
+        safe_filename = f"{uuid4().hex}{ext}"
+        image_path = os.path.join(tempfile.gettempdir(), safe_filename)
+
         with open(image_path, "wb") as f:
             f.write(await image.read())
 
+        # ✅ 퀴즈 생성
         result = generate_quiz_only(patient_name, photo_description, relationship, tone, image_path)
+        print("🧪 generate_quiz_only 결과:\n", result)
 
-        quiz_question = ""
-        quiz_options = []
-        quiz_answer = ""
+        # ✅ 퀴즈 파싱
+        quiz_list = []
+        quiz_block = {"question": "", "options": [], "answer": ""}
         capture_options = False
 
         for line in result.strip().splitlines():
             line = line.strip()
-            if line.startswith("퀴즈 문제:"):
-                quiz_question = line.split("퀴즈 문제:")[1].strip()
+            if line.startswith("질문:") or line.startswith("퀴즈 문제:"):
+                if quiz_block["question"] and quiz_block["options"] and quiz_block["answer"]:
+                    quiz_list.append(quiz_block)
+                    quiz_block = {"question": "", "options": [], "answer": ""}
+                quiz_block["question"] = line.split(":", 1)[1].strip()
             elif line.startswith("선택지:"):
                 capture_options = True
             elif line.startswith("정답:"):
                 capture_options = False
                 raw = line.split("정답:")[1].strip()
                 match = re.match(r"\d+번[.,]?\s*(.+)", raw)
-                quiz_answer = match.group(1).strip() if match else raw
+                quiz_block["answer"] = match.group(1).strip() if match else raw
             elif capture_options:
                 match = re.match(r"\d+번[.,]?\s*(.+)", line)
                 if match:
-                    quiz_options.append(match.group(1).strip())
+                    quiz_block["options"].append(match.group(1).strip())
 
-        if not quiz_question or not quiz_answer or not quiz_options:
+        # 마지막 블록 추가
+        if quiz_block["question"] and quiz_block["options"] and quiz_block["answer"]:
+            quiz_list.append(quiz_block)
+
+        if not quiz_list:
             raise HTTPException(status_code=400, detail="퀴즈 정보가 부족합니다.")
 
-        quiz_text = f"{quiz_question}\n" + "\n".join(
-            [f"{i+1}번, {opt}" for i, opt in enumerate(quiz_options)]
-        )
+        # ✅ 각 퀴즈별 TTS 생성 및 업로드
+        response_data = []
+        for quiz in quiz_list:
+            quiz_text = f"{quiz['question']}\n" + "\n".join(
+                [f"{i+1}번, {opt}" for i, opt in enumerate(quiz["options"])]
+            )
 
-        quiz_mp3 = f"quiz_{uuid4().hex}.mp3"
-        text_to_speech(quiz_text, voice_id, quiz_mp3)
-        process_audio_speed(quiz_mp3, quiz_mp3, speed=0.83)
+            quiz_mp3 = f"quiz_{uuid4().hex}.mp3"
+            text_to_speech(quiz_text, voice_id, quiz_mp3)
+            process_audio_speed(quiz_mp3, quiz_mp3, speed=0.83)
 
-        blob = bucket.blob(f"tts/{guardian_uid}/{patient_uid}/{quiz_mp3}")
-        blob.upload_from_filename(quiz_mp3)
-        quiz_url = f"https://storage.googleapis.com/{bucket.name}/tts/quiz/{guardian_uid}/{patient_uid}/{quiz_mp3}"
+            blob = bucket.blob(f"tts/quiz/{guardian_uid}/{patient_uid}/{quiz_mp3}")
+            blob.upload_from_filename(quiz_mp3)
+            blob.make_public()  # 🔹 이 줄 추가
+            quiz_url = f"https://storage.googleapis.com/{bucket.name}/tts/quiz/{guardian_uid}/{patient_uid}/{quiz_mp3}"
 
-        os.remove(quiz_mp3)
-        os.remove(image_path)  # ✅ 이미지 정리
+            os.remove(quiz_mp3)
+
+            response_data.append({
+                "question": quiz["question"],
+                "options": quiz["options"],
+                "answer": quiz["answer"],
+                "quiz_tts_url": quiz_url
+            })
+
+        # ✅ 이미지 파일 정리
+        os.remove(image_path)
 
         return {
-            "message": "퀴즈 생성 완료",
-            "question": quiz_question,
-            "options": quiz_options,
-            "answer": quiz_answer,
-            "quiz_tts_url": quiz_url
+            "message": f"퀴즈 {len(response_data)}개 생성 완료",
+            "quizzes": response_data
         }
 
     except Exception as e:

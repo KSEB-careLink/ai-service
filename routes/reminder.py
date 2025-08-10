@@ -6,6 +6,7 @@ from llm.gpt_client import generate_reminder_sentence
 from tts.elevenlabs_client import text_to_speech, process_audio_speed
 from enums import ToneEnum
 import os
+import tempfile  # ✅ 추가
 
 router = APIRouter()
 db = firestore.client()
@@ -19,39 +20,54 @@ async def generate_reminder_endpoint(
     relationship: str = Form(...),
     tone: ToneEnum = Form(...),
     voice_id: str = Form(...),
-    image: UploadFile = File(...)  # ✅ 이미지 추가
+    image: UploadFile = File(...)
 ):
     try:
         # ✅ 이미지 임시 저장
-        image_path = f"/tmp/{uuid4().hex}_{image.filename}"
+        ext = os.path.splitext(image.filename)[1]  # 예: ".jpg"
+        safe_filename = f"{uuid4().hex}{ext}"
+        image_path = os.path.join(tempfile.gettempdir(), safe_filename)
+        
         with open(image_path, "wb") as f:
             f.write(await image.read())
 
+        # ✅ 디버깅: 파일 존재 여부 확인
+        print("임시 이미지 저장 경로:", image_path)
+        print("파일 존재 여부:", os.path.exists(image_path))
+
         result = generate_reminder_sentence(patient_name, photo_description, relationship, tone, image_path)
+        print("📝 photo_description:", photo_description)
+        print("🔧 GPT 응답:", result)
 
-        # ✅ 회상 문장 추출
-        reminder_text = ""
-        for line in result.splitlines():
-            if line.strip().startswith("회상 문장:"):
-                reminder_text = line.split("회상 문장:")[1].strip()
-                break
+        # ✅ generate_reminder_sentence에서 사용하는 동안 삭제 지연
+        try:
+            result = generate_reminder_sentence(
+                patient_name, photo_description, relationship, tone, image_path
+            )
+        finally:
+            if os.path.exists(image_path):
+                os.remove(image_path)
 
-        if not reminder_text:
+        # 회상 문장 추출
+        reminder_text = result.strip()
+
+        if not reminder_text or len(reminder_text) < 5:
             raise HTTPException(status_code=400, detail="회상 문장이 없습니다.")
 
-        # ✅ TTS 처리
+        # TTS 생성
         reminder_mp3 = f"reminder_{uuid4().hex}.mp3"
         text_to_speech(reminder_text, voice_id, reminder_mp3)
         process_audio_speed(reminder_mp3, reminder_mp3, speed=0.83)
 
-        # ✅ 업로드
-        blob = bucket.blob(f"tts/{guardian_uid}/{patient_uid}/{reminder_mp3}")
+        # 업로드
+        blob = bucket.blob(f"tts/reminder/{guardian_uid}/{patient_uid}/{reminder_mp3}")
         blob.upload_from_filename(reminder_mp3)
+        blob.make_public()
         reminder_url = f"https://storage.googleapis.com/{bucket.name}/tts/reminder/{guardian_uid}/{patient_uid}/{reminder_mp3}"
 
-        # ✅ 정리
-        os.remove(reminder_mp3)
-        os.remove(image_path)
+        # TTS 파일 삭제
+        if os.path.exists(reminder_mp3):
+            os.remove(reminder_mp3)
 
         return {
             "message": "회상 문장 생성 완료",
