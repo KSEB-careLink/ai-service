@@ -37,7 +37,7 @@ class LSTMReg(nn.Module):
         _, (hn, _) = self.lstm(x)
         return self.head(hn[-1])
 
-MODEL_DIR = os.getenv("MODEL_DIR", "data_daily_w45")
+MODEL_DIR = os.getenv("MODEL_DIR", "model_final/data_daily_w45")
 CKPT_PATH = os.getenv("MODEL_CKPT", os.path.join(MODEL_DIR, "model.pth"))
 if not os.path.exists(CKPT_PATH):
     raise RuntimeError(f"[predict-accuracy-live] model checkpoint not found: {CKPT_PATH}")
