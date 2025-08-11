@@ -8,9 +8,18 @@ from enums import ToneEnum
 import os
 import re
 import tempfile
+from enum import Enum
 
 router = APIRouter()
 db = firestore.client()
+
+# 🔹 카테고리 Enum 추가 (선택사항 - 더 엄격한 검증을 원한다면)
+class CategoryEnum(str, Enum):
+    FAMILY = "가족"
+    NEIGHBORHOOD = "동네"
+    SCHOOL_DAYS = "학창시절"
+    TRAVEL = "여행"
+    PATIENT_FAVORITES = "환자가 좋아하는 것"
 
 @router.post("/generate-quiz")
 async def generate_quiz_endpoint(
@@ -19,11 +28,20 @@ async def generate_quiz_endpoint(
     patient_name: str = Form(...),
     photo_description: str = Form(...),
     relationship: str = Form(...),
+    category: str = Form(...),  # 🔹 카테고리 파라미터 추가
     tone: ToneEnum = Form(...),
     voice_id: str = Form(...),
     image: UploadFile = File(...)
 ):
     try:
+        # 🔹 카테고리 유효성 검증 (선택사항)
+        valid_categories = ["가족", "동네", "학창시절", "여행", "환자가 좋아하는 것"]
+        if category not in valid_categories:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"유효하지 않은 카테고리입니다. 허용된 카테고리: {', '.join(valid_categories)}"
+            )
+
         # ✅ 이미지 임시 저장
         ext = os.path.splitext(image.filename)[1]
         safe_filename = f"{uuid4().hex}{ext}"
@@ -32,8 +50,8 @@ async def generate_quiz_endpoint(
         with open(image_path, "wb") as f:
             f.write(await image.read())
 
-        # ✅ 퀴즈 생성
-        result = generate_quiz_only(patient_name, photo_description, relationship, tone, image_path)
+        # ✅ 퀴즈 생성 (카테고리 정보도 함께 전달)
+        result = generate_quiz_only(patient_name, photo_description, relationship, tone, image_path, category)  # 🔹 category 추가
         print("🧪 generate_quiz_only 결과:\n", result)
 
         # ✅ 퀴즈 파싱
@@ -80,7 +98,7 @@ async def generate_quiz_endpoint(
 
             blob = bucket.blob(f"tts/quiz/{guardian_uid}/{patient_uid}/{quiz_mp3}")
             blob.upload_from_filename(quiz_mp3)
-            blob.make_public()  # 🔹 이 줄 추가
+            blob.make_public()
             quiz_url = f"https://storage.googleapis.com/{bucket.name}/tts/quiz/{guardian_uid}/{patient_uid}/{quiz_mp3}"
 
             os.remove(quiz_mp3)
@@ -97,6 +115,7 @@ async def generate_quiz_endpoint(
 
         return {
             "message": f"퀴즈 {len(response_data)}개 생성 완료",
+            "category": category,  # 🔹 응답에 카테고리 정보도 포함
             "quizzes": response_data
         }
 
