@@ -20,7 +20,7 @@ def extract_terms(photo_description: str):
 ["아버지", "바닷가", "모래성"]
 """
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-5",
         messages=[{"role": "user", "content": prompt_extract}]
     )
     content = response.choices[0].message.content.strip()
@@ -37,7 +37,7 @@ def extract_visible_terms_from_image(image_path: str):
         base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-5o",
         messages=[
             {"role": "system", "content": "이미지를 보고, 눈에 보이는 '인물', '장소', '사물', '행동'을 한국어로 JSON 배열로 출력해줘. 감정, 추측, 설명은 넣지 마."},
             {
@@ -120,7 +120,7 @@ allowed_terms: {allowed_terms}
 - 예: “아버지, 사진 속 그날이 생각나십니까… 을왕리 바다였지요.”
 """
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-5",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content.strip()
@@ -217,7 +217,7 @@ tone: {tone.value}
 퀴즈 문제: 질문 내용  
 선택지:  
 1번. 보기1  
-2번. 보기2  
+2번. 보기2
 3번. 보기3  
 4번. 보기4  
 정답: 2번. 보기2
@@ -238,7 +238,7 @@ tone: {tone.value}
 """
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-5",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content.strip()
