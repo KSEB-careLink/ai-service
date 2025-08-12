@@ -17,6 +17,13 @@ firebase/serviceAccountKey.json
 voicefixer/
 ffmpeg-release-amd64-static/
 
+qa_outputs/
+README_QA.md
+requirements_qa.txt
+db_config.json
+model_final/
+qa_test.py
+
 # TTS/임시 오디오
 *.mp3
 *.wav
