@@ -78,17 +78,18 @@ DB_PORT = int(CFG["port"])
 # 3) DB → pandas 로드
 # -----------------------------
 def load_logs_from_db(patient_id: str) -> pd.DataFrame:
-    conn = pymysql.connect(
-        host=DB_HOST, user=DB_USER, password=DB_PASS,
-        database=DB_NAME, port=DB_PORT, charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    conn = None
     try:
+        conn = pymysql.connect(
+            host=DB_HOST, user=DB_USER, password=DB_PASS,
+            database=DB_NAME, port=DB_PORT, charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor
+        )
         sql = """
         SELECT
           patient_id,
-          quiz_id,             -- ✅ ERD 기준
-          selected_index,      -- ✅ 있어도 무방 (안 쓰면 무시)
+          quiz_id,
+          selected_index,
           is_correct,
           response_time_sec,
           created_at
@@ -97,10 +98,15 @@ def load_logs_from_db(patient_id: str) -> pd.DataFrame:
         ORDER BY created_at
         """
         df = pd.read_sql(sql, conn, params=[patient_id])
+        if not df.empty:
+            df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+        return df
+    except Exception as e:
+        # 디버그용: 원인 그대로 노출 (배포 전엔 로그로만 남기세요)
+        raise HTTPException(status_code=500, detail=f"[DB] {type(e).__name__}: {e}")
     finally:
-        conn.close()
-    return df
-
+        if conn is not None:
+            conn.close()
 # -----------------------------
 # 4) 전처리 유틸
 # -----------------------------
@@ -167,67 +173,74 @@ def predict_accuracy_live(
     patient_id: str = Query(..., description="환자 ID"),
     month: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="예측 대상 월 (YYYY-MM)")
 ):
-    df = load_logs_from_db(patient_id)
-
     try:
-        M_start = datetime.strptime(month + "-01", "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="month must be YYYY-MM")
-    wnd_end = M_start - timedelta(days=1)
-    wnd_start = wnd_end - timedelta(days=W - 1)
+        df = load_logs_from_db(patient_id)
 
-    if df.empty:
-        daily = pd.DataFrame(columns=["date", "daily_acc_rate", "daily_avg_time"])
+        try:
+            M_start = datetime.strptime(month + "-01", "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="month must be YYYY-MM")
+
+        wnd_end = M_start - timedelta(days=1)
+        wnd_start = wnd_end - timedelta(days=W - 1)
+
+        if df.empty:
+            daily = pd.DataFrame(columns=["date", "daily_acc_rate", "daily_avg_time"])
+            X = _build_features(daily, wnd_start, wnd_end, W)
+            with torch.no_grad():
+                x = torch.tensor(X, dtype=torch.float32).unsqueeze(0)
+                raw_pred = float(_model(x).item())
+            raw_pred = max(0.0, min(1.0, raw_pred))
+            blended = BASELINE_ACC
+            return {
+                "patient_id": patient_id,
+                "month": month,
+                "predicted_final_accuracy": round(blended, 4),
+                "cold_start": True,
+                "ui": {"badges": ["초기 예측 — 더 많은 풀이가 쌓일수록 정확도가 올라가요."]}
+            }
+
+        # 전처리
+        df = df.dropna(subset=["created_at"]).sort_values("created_at").reset_index(drop=True)
+        df["is_correct"] = df["is_correct"].astype(int).clip(0, 1)
+
+        # 윈도우 집계
+        in_wnd = df[(df["created_at"] >= wnd_start) & (df["created_at"] <= wnd_end)]
+        attempts = int(in_wnd.shape[0])
+
+        daily = _make_daily(df[df["created_at"] <= wnd_end].copy())
         X = _build_features(daily, wnd_start, wnd_end, W)
+        if X.shape[1] != F:
+            raise HTTPException(status_code=500, detail=f"입력 차원 불일치: X({X.shape[1]}) vs 모델({F})")
+
+        active_days = 0
+        if not daily.empty:
+            mask = (daily["date"] >= pd.Timestamp(wnd_start)) & (daily["date"] <= pd.Timestamp(wnd_end))
+            active_days = int(daily.loc[mask].shape[0])
+
+        day_coverage = active_days / float(W) if W > 0 else 0.0
+        expected_attempts = max(1, W * EXPECTED_DAILY_SOLVES)
+        attempt_coverage = min(1.0, attempts / float(expected_attempts))
+        coverage = max(day_coverage, attempt_coverage)
+
         with torch.no_grad():
             x = torch.tensor(X, dtype=torch.float32).unsqueeze(0)
             raw_pred = float(_model(x).item())
         raw_pred = max(0.0, min(1.0, raw_pred))
-        blended = BASELINE_ACC
+
+        blended = coverage * raw_pred + (1.0 - coverage) * BASELINE_ACC
+        cold_start_flag = not (active_days >= COLD_DAYS_OK or attempts >= COLD_ATTEMPTS_OK)
+
         return {
             "patient_id": patient_id,
             "month": month,
             "predicted_final_accuracy": round(blended, 4),
-            "cold_start": True,
-            "ui": {"badges": ["초기 예측 — 더 많은 풀이가 쌓일수록 정확도가 올라가요."]}
+            "cold_start": cold_start_flag,
+            "ui": {"badges": ["초기 예측 — 더 많은 풀이가 쌓일수록 정확도가 올라가요."] if cold_start_flag else []}
         }
-
-    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-    df = df.dropna(subset=["created_at"]).sort_values("created_at").reset_index(drop=True)
-    df["is_correct"] = df["is_correct"].astype(int).clip(0, 1)
-
-    in_wnd = df[(df["created_at"] >= wnd_start) & (df["created_at"] <= wnd_end)]
-    attempts = int(in_wnd.shape[0])
-
-    daily = _make_daily(df[df["created_at"] <= wnd_end].copy())
-    X = _build_features(daily, wnd_start, wnd_end, W)
-    if X.shape[1] != F:
-        raise HTTPException(status_code=500, detail=f"입력 차원 불일치: X({X.shape[1]}) vs 모델({F})")
-
-    active_days = 0
-    if not daily.empty:
-        mask = (daily["date"] >= pd.Timestamp(wnd_start)) & (daily["date"] <= pd.Timestamp(wnd_end))
-        active_days = int(daily.loc[mask].shape[0])
-
-    day_coverage = active_days / float(W) if W > 0 else 0.0
-    expected_attempts = max(1, W * EXPECTED_DAILY_SOLVES)
-    attempt_coverage = min(1.0, attempts / float(expected_attempts))
-    coverage = max(day_coverage, attempt_coverage)
-
-    with torch.no_grad():
-        x = torch.tensor(X, dtype=torch.float32).unsqueeze(0)
-        raw_pred = float(_model(x).item())
-    raw_pred = max(0.0, min(1.0, raw_pred))
-
-    blended = coverage * raw_pred + (1.0 - coverage) * BASELINE_ACC
-    cold_start_flag = not (active_days >= COLD_DAYS_OK or attempts >= COLD_ATTEMPTS_OK)
-
-    return {
-        "patient_id": patient_id,
-        "month": month,
-        "predicted_final_accuracy": round(blended, 4),
-        "cold_start": cold_start_flag,
-        "ui": {
-            "badges": ["초기 예측 — 더 많은 풀이가 쌓일수록 정확도가 올라가요."] if cold_start_flag else []
-        }
-    }
+    except HTTPException:
+        # 이미 의미있는 detail을 설정한 경우 그대로 전달
+        raise
+    except Exception as e:
+        # 어디서든 터지면 JSON detail로 보여주기
+        raise HTTPException(status_code=500, detail=f"[API] {type(e).__name__}: {e}")
