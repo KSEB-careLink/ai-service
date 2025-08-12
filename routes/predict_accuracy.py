@@ -85,12 +85,17 @@ def load_logs_from_db(patient_id: str) -> pd.DataFrame:
     )
     try:
         sql = """
-        SELECT patient_id, question_id, question_topic,
-               is_correct, response_time_sec, created_at
-          FROM quiz_logs
-         WHERE patient_id = %s
-         ORDER BY created_at
-        """
+SELECT
+  patient_id,
+  quiz_id,               -- ← question_id 아님
+  is_correct,
+  response_time_sec,
+  created_at
+FROM quiz_logs
+WHERE patient_id = %s
+ORDER BY created_at
+"""
+
         df = pd.read_sql(sql, conn, params=[patient_id])
     finally:
         conn.close()
