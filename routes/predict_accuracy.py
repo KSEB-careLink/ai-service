@@ -63,10 +63,11 @@ def load_logs_from_api(patient_id: str) -> pd.DataFrame:
     """Node.js API에서 quiz_logs 데이터를 가져옴"""
     try:
         url = f"{NODE_API_BASE_URL}/quiz-logs"
-        response = requests.get(url, params={"patient_id": patient_id}, timeout=NODE_API_TIMEOUT)
         
+        # 수정: 한 번만 요청하고 patient_id 파라미터 유지
         response = requests.get(
-            url,
+            url, 
+            params={"patient_id": patient_id},  # 파라미터 유지
             timeout=NODE_API_TIMEOUT,
             headers={"Content-Type": "application/json"}
         )
@@ -227,6 +228,10 @@ def predict_accuracy_live(
     try:
         # Node.js API에서 데이터 로드
         df = load_logs_from_api(patient_id)
+        
+        print(f"[DEBUG] 로드된 데이터 수: {len(df)}")
+        if not df.empty:
+            print(f"[DEBUG] 날짜 범위: {df['created_at'].min()} ~ {df['created_at'].max()}")
 
         try:
             M_start = datetime.strptime(month + "-01", "%Y-%m-%d")
@@ -235,9 +240,12 @@ def predict_accuracy_live(
 
         wnd_end = M_start - timedelta(days=1)
         wnd_start = wnd_end - timedelta(days=W - 1)
+        
+        print(f"[DEBUG] 윈도우 범위: {wnd_start} ~ {wnd_end}")
 
         # 데이터가 없는 경우 (콜드 스타트)
         if df.empty:
+            print("[DEBUG] 데이터가 비어있음 - Cold start")
             daily = pd.DataFrame(columns=["date", "daily_acc_rate", "daily_avg_time"])
             X = _build_features(daily, wnd_start, wnd_end, W)
             with torch.no_grad():
@@ -260,6 +268,8 @@ def predict_accuracy_live(
         # 윈도우 집계
         in_wnd = df[(df["created_at"] >= wnd_start) & (df["created_at"] <= wnd_end)]
         attempts = int(in_wnd.shape[0])
+        
+        print(f"[DEBUG] 윈도우 내 시도 횟수: {attempts}")
 
         daily = _make_daily(df[df["created_at"] <= wnd_end].copy())
         X = _build_features(daily, wnd_start, wnd_end, W)
@@ -270,6 +280,9 @@ def predict_accuracy_live(
         if not daily.empty:
             mask = (daily["date"] >= pd.Timestamp(wnd_start)) & (daily["date"] <= pd.Timestamp(wnd_end))
             active_days = int(daily.loc[mask].shape[0])
+
+        print(f"[DEBUG] 활성 일수: {active_days}, 임계값: {COLD_DAYS_OK}")
+        print(f"[DEBUG] 시도 횟수: {attempts}, 임계값: {COLD_ATTEMPTS_OK}")
 
         day_coverage = active_days / float(W) if W > 0 else 0.0
         expected_attempts = max(1, W * EXPECTED_DAILY_SOLVES)
@@ -285,6 +298,9 @@ def predict_accuracy_live(
         # 블렌딩
         blended = coverage * raw_pred + (1.0 - coverage) * BASELINE_ACC
         cold_start_flag = not (active_days >= COLD_DAYS_OK or attempts >= COLD_ATTEMPTS_OK)
+        
+        print(f"[DEBUG] Cold start 판정: {cold_start_flag}")
+        print(f"[DEBUG] Coverage: {coverage}, Raw pred: {raw_pred}, Blended: {blended}")
 
         return {
             "patient_id": patient_id,
