@@ -2,12 +2,13 @@
 import os, json
 from datetime import datetime, timedelta
 from pathlib import Path
+import requests
+from typing import Dict, Any
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import pymysql
 from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter()
@@ -19,6 +20,10 @@ EXPECTED_DAILY_SOLVES = int(os.getenv("EXPECTED_DAILY_SOLVES", "3"))
 BASELINE_ACC = float(os.getenv("BASELINE_ACC", "0.60"))
 COLD_DAYS_OK = int(os.getenv("COLD_DAYS_OK", "30"))
 COLD_ATTEMPTS_OK = int(os.getenv("COLD_ATTEMPTS_OK", "120"))
+
+# Node.js API 설정
+NODE_API_BASE_URL = os.getenv("NODE_API_BASE_URL", "http://localhost:3000/api")
+NODE_API_TIMEOUT = int(os.getenv("NODE_API_TIMEOUT", "30"))
 
 # -----------------------------
 # 1) 모델 로드
@@ -52,63 +57,96 @@ _model.load_state_dict(_ckpt["state_dict"])
 _model.eval()
 
 # -----------------------------
-# 2) DB 설정 파일 로딩
+# 2) Node.js API 호출
 # -----------------------------
-BASE_DIR = Path(__file__).resolve().parents[1]
-CFG_PATH = Path(os.getenv("DB_CONFIG_PATH", BASE_DIR / "db_config.json"))
-
-if not CFG_PATH.exists():
-    raise RuntimeError(f"[predict-accuracy-live] DB 설정 파일이 없습니다: {CFG_PATH}")
-
-with open(CFG_PATH, "r", encoding="utf-8") as f:
-    CFG = json.load(f)
-
-required_keys = ["host", "user", "password", "database", "port"]
-missing = [k for k in required_keys if k not in CFG]
-if missing:
-    raise RuntimeError(f"[predict-accuracy-live] db_config.json에 누락된 키: {missing}")
-
-DB_HOST = CFG["host"]
-DB_USER = CFG["user"]
-DB_PASS = CFG["password"]
-DB_NAME = CFG["database"]
-DB_PORT = int(CFG["port"])
-
-# -----------------------------
-# 3) DB → pandas 로드
-# -----------------------------
-def load_logs_from_db(patient_id: str) -> pd.DataFrame:
-    conn = None
+def load_logs_from_api(patient_id: str) -> pd.DataFrame:
+    """Node.js API에서 quiz_logs 데이터를 가져옴"""
     try:
-        conn = pymysql.connect(
-            host=DB_HOST, user=DB_USER, password=DB_PASS,
-            database=DB_NAME, port=DB_PORT, charset="utf8mb4",
-            cursorclass=pymysql.cursors.DictCursor
+        url = f"{NODE_API_BASE_URL}/quiz-logs/{patient_id}"
+        
+        response = requests.get(
+            url,
+            timeout=NODE_API_TIMEOUT,
+            headers={"Content-Type": "application/json"}
         )
-        sql = """
-        SELECT
-          patient_id,
-          quiz_id,
-          selected_index,
-          is_correct,
-          response_time_sec,
-          created_at
-        FROM quiz_logs
-        WHERE patient_id = %s
-        ORDER BY created_at
-        """
-        df = pd.read_sql(sql, conn, params=[patient_id])
+        
+        # HTTP 에러 체크
+        if response.status_code == 404:
+            # 환자 데이터가 없는 경우 빈 DataFrame 반환
+            return pd.DataFrame(columns=[
+                "patient_id", "quiz_id", "selected_index", 
+                "is_correct", "response_time_sec", "created_at"
+            ])
+        elif response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"Node.js API 오류: {response.text}"
+            )
+        
+        # JSON 응답 파싱
+        data = response.json()
+        
+        # API 응답이 리스트가 아닌 경우 처리
+        if isinstance(data, dict) and "data" in data:
+            quiz_logs = data["data"]
+        elif isinstance(data, list):
+            quiz_logs = data
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail="예상하지 못한 API 응답 형식"
+            )
+        
+        if not quiz_logs:
+            return pd.DataFrame(columns=[
+                "patient_id", "quiz_id", "selected_index", 
+                "is_correct", "response_time_sec", "created_at"
+            ])
+        
+        # DataFrame으로 변환
+        df = pd.DataFrame(quiz_logs)
+        
+        # 필수 컬럼 체크
+        required_columns = ["patient_id", "quiz_id", "selected_index", 
+                          "is_correct", "response_time_sec", "created_at"]
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise HTTPException(
+                status_code=500,
+                detail=f"API 응답에서 누락된 컬럼: {missing_columns}"
+            )
+        
+        # 날짜 파싱
         if not df.empty:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+            # 날짜 파싱 실패한 행 제거
+            df = df.dropna(subset=["created_at"])
+        
         return df
+        
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504, 
+            detail="Node.js API 응답 시간 초과"
+        )
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503, 
+            detail="Node.js API 연결 실패"
+        )
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"API 호출 오류: {str(e)}"
+        )
     except Exception as e:
-        # 디버그용: 원인 그대로 노출 (배포 전엔 로그로만 남기세요)
-        raise HTTPException(status_code=500, detail=f"[DB] {type(e).__name__}: {e}")
-    finally:
-        if conn is not None:
-            conn.close()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"데이터 처리 오류: {type(e).__name__}: {e}"
+        )
+
 # -----------------------------
-# 4) 전처리 유틸
+# 3) 전처리 유틸 (기존과 동일)
 # -----------------------------
 def _make_daily(df: pd.DataFrame) -> pd.DataFrame:
     tmp = df.copy()
@@ -166,7 +204,7 @@ def _build_features(daily: pd.DataFrame, wnd_start: datetime, wnd_end: datetime,
     return X.astype(np.float32)
 
 # -----------------------------
-# 5) 예측 엔드포인트
+# 4) 예측 엔드포인트 (수정됨)
 # -----------------------------
 @router.get("/predict-accuracy-live")
 def predict_accuracy_live(
@@ -174,7 +212,8 @@ def predict_accuracy_live(
     month: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="예측 대상 월 (YYYY-MM)")
 ):
     try:
-        df = load_logs_from_db(patient_id)
+        # Node.js API에서 데이터 로드
+        df = load_logs_from_api(patient_id)
 
         try:
             M_start = datetime.strptime(month + "-01", "%Y-%m-%d")
@@ -184,6 +223,7 @@ def predict_accuracy_live(
         wnd_end = M_start - timedelta(days=1)
         wnd_start = wnd_end - timedelta(days=W - 1)
 
+        # 데이터가 없는 경우 (콜드 스타트)
         if df.empty:
             daily = pd.DataFrame(columns=["date", "daily_acc_rate", "daily_avg_time"])
             X = _build_features(daily, wnd_start, wnd_end, W)
@@ -223,11 +263,13 @@ def predict_accuracy_live(
         attempt_coverage = min(1.0, attempts / float(expected_attempts))
         coverage = max(day_coverage, attempt_coverage)
 
+        # 모델 예측
         with torch.no_grad():
             x = torch.tensor(X, dtype=torch.float32).unsqueeze(0)
             raw_pred = float(_model(x).item())
         raw_pred = max(0.0, min(1.0, raw_pred))
 
+        # 블렌딩
         blended = coverage * raw_pred + (1.0 - coverage) * BASELINE_ACC
         cold_start_flag = not (active_days >= COLD_DAYS_OK or attempts >= COLD_ATTEMPTS_OK)
 
