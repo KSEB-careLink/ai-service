@@ -181,8 +181,20 @@ def _build_features(daily: pd.DataFrame, wnd_start: datetime, wnd_end: datetime,
             rt_med = 10.0
     else:
         rt_med = 10.0
-    feat["daily_acc_rate"] = feat["daily_acc_rate"].fillna(0.0).astype(float).clip(0, 1)
-    feat["daily_avg_time"] = feat["daily_avg_time"].fillna(rt_med).astype(float).clip(0, 600)
+    feat["daily_acc_rate"] = (
+        feat["daily_acc_rate"]
+        .fillna(0.0)
+        .infer_objects(copy=False)
+        .astype(float)
+        .clip(0, 1)
+    )
+    feat["daily_avg_time"] = (
+        feat["daily_avg_time"]
+        .fillna(rt_med)
+        .infer_objects(copy=False)
+        .astype(float)
+        .clip(0, 600)
+    )
     feat["daily_avg_time"] = np.log1p(feat["daily_avg_time"]) / np.log1p(600.0)
 
     wd = np.zeros((len(feat), 7), dtype=np.float32)
