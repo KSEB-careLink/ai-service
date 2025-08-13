@@ -62,7 +62,8 @@ _model.eval()
 def load_logs_from_api(patient_id: str) -> pd.DataFrame:
     """Node.js API에서 quiz_logs 데이터를 가져옴"""
     try:
-        url = f"{NODE_API_BASE_URL}/quiz-logs/{patient_id}"
+        url = f"{NODE_API_BASE_URL}/quiz-logs"
+        response = requests.get(url, params={"patient_id": patient_id}, timeout=NODE_API_TIMEOUT)
         
         response = requests.get(
             url,
