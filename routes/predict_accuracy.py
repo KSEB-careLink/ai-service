@@ -1,6 +1,6 @@
 # routes/predict_accuracy.py
 import os, json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import requests
 from typing import Dict, Any
@@ -10,6 +10,9 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from fastapi import APIRouter, HTTPException, Query
+
+# ✅ 타임존 유틸 (아래 utils_time.py 함께 사용)
+from .utils_time import ensure_utc_series, kst_month_window_utc
 
 router = APIRouter()
 
@@ -63,95 +66,73 @@ def load_logs_from_api(patient_id: str) -> pd.DataFrame:
     """Node.js API에서 quiz_logs 데이터를 가져옴"""
     try:
         url = f"{NODE_API_BASE_URL}/quiz-logs"
-        
-        # 수정: 한 번만 요청하고 patient_id 파라미터 유지
         response = requests.get(
-            url, 
-            params={"patient_id": patient_id},  # 파라미터 유지
+            url,
+            params={"patient_id": patient_id},
             timeout=NODE_API_TIMEOUT,
             headers={"Content-Type": "application/json"}
         )
-        
-        # HTTP 에러 체크
         if response.status_code == 404:
-            # 환자 데이터가 없는 경우 빈 DataFrame 반환
             return pd.DataFrame(columns=[
-                "patient_id", "quiz_id", "selected_index", 
+                "patient_id", "quiz_id", "selected_index",
                 "is_correct", "response_time_sec", "created_at"
             ])
         elif response.status_code != 200:
             raise HTTPException(
-                status_code=response.status_code, 
+                status_code=response.status_code,
                 detail=f"Node.js API 오류: {response.text}"
             )
-        
-        # JSON 응답 파싱
+
         data = response.json()
-        
-        # API 응답이 리스트가 아닌 경우 처리
         if isinstance(data, dict) and "data" in data:
             quiz_logs = data["data"]
         elif isinstance(data, list):
             quiz_logs = data
         else:
             raise HTTPException(
-                status_code=500, 
+                status_code=500,
                 detail="예상하지 못한 API 응답 형식"
             )
-        
+
         if not quiz_logs:
             return pd.DataFrame(columns=[
-                "patient_id", "quiz_id", "selected_index", 
+                "patient_id", "quiz_id", "selected_index",
                 "is_correct", "response_time_sec", "created_at"
             ])
-        
-        # DataFrame으로 변환
+
         df = pd.DataFrame(quiz_logs)
-        
-        # 필수 컬럼 체크
-        required_columns = ["patient_id", "quiz_id", "selected_index", 
-                          "is_correct", "response_time_sec", "created_at"]
+
+        required_columns = ["patient_id", "quiz_id", "selected_index",
+                            "is_correct", "response_time_sec", "created_at"]
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
             raise HTTPException(
                 status_code=500,
                 detail=f"API 응답에서 누락된 컬럼: {missing_columns}"
             )
-        
-        # 날짜 파싱
+
+        # 날짜 파싱은 utils에서 tz-safe하게 표준화하므로 여기선 최소 처리
         if not df.empty:
             df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
-            # 날짜 파싱 실패한 행 제거
             df = df.dropna(subset=["created_at"])
-        
+
         return df
-        
+
     except requests.exceptions.Timeout:
-        raise HTTPException(
-            status_code=504, 
-            detail="Node.js API 응답 시간 초과"
-        )
+        raise HTTPException(status_code=504, detail="Node.js API 응답 시간 초과")
     except requests.exceptions.ConnectionError:
-        raise HTTPException(
-            status_code=503, 
-            detail="Node.js API 연결 실패"
-        )
+        raise HTTPException(status_code=503, detail="Node.js API 연결 실패")
     except requests.exceptions.RequestException as e:
-        raise HTTPException(
-            status_code=500, 
-            detail=f"API 호출 오류: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"API 호출 오류: {str(e)}")
     except Exception as e:
-        raise HTTPException(
-            status_code=500, 
-            detail=f"데이터 처리 오류: {type(e).__name__}: {e}"
-        )
+        raise HTTPException(status_code=500, detail=f"데이터 처리 오류: {type(e).__name__}: {e}")
 
 # -----------------------------
-# 3) 전처리 유틸 (기존과 동일)
+# 3) 전처리 유틸
 # -----------------------------
 def _make_daily(df: pd.DataFrame) -> pd.DataFrame:
     tmp = df.copy()
+    # ✅ UTC 기준의 '일' 그리드로 집계 (tz-aware 상태 유지)
     tmp["date"] = tmp["created_at"].dt.floor("D")
     g = tmp.groupby("date").agg(
         solved=("is_correct", "count"),
@@ -171,6 +152,8 @@ def _make_daily(df: pd.DataFrame) -> pd.DataFrame:
     return g[["date", "daily_acc_rate", "daily_avg_time"]]
 
 def _build_features(daily: pd.DataFrame, wnd_start: datetime, wnd_end: datetime, window: int) -> np.ndarray:
+    # ✅ wnd_start/wnd_end는 tz-aware(UTC). 이미 tz-aware이므로 tz= 파라미터를 주면 안 됨!
+    # pd.date_range는 start/end가 tz-aware면 자동으로 해당 타임존을 사용
     days = pd.date_range(wnd_start, wnd_end, freq="D")
     base = pd.DataFrame({"date": days})
     base["weekday"] = base["date"].dt.weekday
@@ -218,7 +201,7 @@ def _build_features(daily: pd.DataFrame, wnd_start: datetime, wnd_end: datetime,
     return X.astype(np.float32)
 
 # -----------------------------
-# 4) 예측 엔드포인트 (수정됨)
+# 4) 예측 엔드포인트 (타임존/윈도우 패치 반영)
 # -----------------------------
 @router.get("/predict-accuracy-live")
 def predict_accuracy_live(
@@ -226,24 +209,34 @@ def predict_accuracy_live(
     month: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="예측 대상 월 (YYYY-MM)")
 ):
     try:
-        # Node.js API에서 데이터 로드
+        # 1) 데이터 로드
         df = load_logs_from_api(patient_id)
-        
         print(f"[DEBUG] 로드된 데이터 수: {len(df)}")
         if not df.empty:
-            print(f"[DEBUG] 날짜 범위: {df['created_at'].min()} ~ {df['created_at'].max()}")
+            print(f"[DEBUG] (raw) 날짜 범위: {df['created_at'].min()} ~ {df['created_at'].max()}")
 
+        # 2) created_at을 'UTC tz-aware'로 표준화
+        if not df.empty:
+            df["created_at"] = ensure_utc_series(df["created_at"])
+            df = df.dropna(subset=["created_at"]).sort_values("created_at").reset_index(drop=True)
+            print(f"[DEBUG] (UTC 표준화) 날짜 범위: {df['created_at'].min()} ~ {df['created_at'].max()}")
+
+        # 3) KST 월 경계 → UTC 윈도우(반열린) 계산
         try:
-            M_start = datetime.strptime(month + "-01", "%Y-%m-%d")
+            start_utc, end_utc = kst_month_window_utc(month)  # [start_utc, end_utc)
         except ValueError:
             raise HTTPException(status_code=400, detail="month must be YYYY-MM")
+        print(f"[DEBUG] KST 기준 월 경계(UTC): [{start_utc} ~ {end_utc})")
 
-        wnd_end = M_start - timedelta(days=1)
+        # 4) 모델 입력용 과거 W일 윈도우
+        #    타깃 월 시작 직전 시점까지를 윈도우로 사용.
+        #    예: 2025-08의 start_utc=2025-07-31 15:00:00Z라면,
+        #        wnd_end = start_utc - 1초, wnd_start = wnd_end - (W-1)일
+        wnd_end = start_utc - timedelta(seconds=1)
         wnd_start = wnd_end - timedelta(days=W - 1)
-        
-        print(f"[DEBUG] 윈도우 범위: {wnd_start} ~ {wnd_end}")
+        print(f"[DEBUG] 모델 윈도우(UTC): {wnd_start} ~ {wnd_end}")
 
-        # 데이터가 없는 경우 (콜드 스타트)
+        # 5) 데이터가 없는 경우 (콜드 스타트)
         if df.empty:
             print("[DEBUG] 데이터가 비어있음 - Cold start")
             daily = pd.DataFrame(columns=["date", "daily_acc_rate", "daily_avg_time"])
@@ -261,24 +254,30 @@ def predict_accuracy_live(
                 "ui": {"badges": ["초기 예측 — 더 많은 풀이가 쌓일수록 정확도가 올라가요."]}
             }
 
-        # 전처리
-        df = df.dropna(subset=["created_at"]).sort_values("created_at").reset_index(drop=True)
+        # 6) 형 변환 등 전처리
         df["is_correct"] = df["is_correct"].astype(int).clip(0, 1)
 
-        # 윈도우 집계
+        # 7) 윈도우 내 시도 수 (UTC 윈도우 기준)
         in_wnd = df[(df["created_at"] >= wnd_start) & (df["created_at"] <= wnd_end)]
         attempts = int(in_wnd.shape[0])
-        
         print(f"[DEBUG] 윈도우 내 시도 횟수: {attempts}")
 
+        # 8) 일 단위 집계 만들기 (wnd_end 이전까지만 사용)
         daily = _make_daily(df[df["created_at"] <= wnd_end].copy())
+
+        # 9) 피처 생성
         X = _build_features(daily, wnd_start, wnd_end, W)
         if X.shape[1] != F:
             raise HTTPException(status_code=500, detail=f"입력 차원 불일치: X({X.shape[1]}) vs 모델({F})")
 
+        # 10) 활성 일수/커버리지 계산
         active_days = 0
         if not daily.empty:
-            mask = (daily["date"] >= pd.Timestamp(wnd_start)) & (daily["date"] <= pd.Timestamp(wnd_end))
+            # ✅ wnd_start/wnd_end는 이미 tz-aware(UTC)이므로 tz= 파라미터 없이 변환
+            # 이미 tz-aware인 값에 tz= 파라미터를 주면 "Cannot pass a datetime or Timestamp with tzinfo with the tz parameter" 에러 발생
+            wnd_start_ts = pd.Timestamp(wnd_start)
+            wnd_end_ts = pd.Timestamp(wnd_end)
+            mask = (daily["date"] >= wnd_start_ts) & (daily["date"] <= wnd_end_ts)
             active_days = int(daily.loc[mask].shape[0])
 
         print(f"[DEBUG] 활성 일수: {active_days}, 임계값: {COLD_DAYS_OK}")
@@ -289,16 +288,16 @@ def predict_accuracy_live(
         attempt_coverage = min(1.0, attempts / float(expected_attempts))
         coverage = max(day_coverage, attempt_coverage)
 
-        # 모델 예측
+        # 11) 모델 예측
         with torch.no_grad():
             x = torch.tensor(X, dtype=torch.float32).unsqueeze(0)
             raw_pred = float(_model(x).item())
         raw_pred = max(0.0, min(1.0, raw_pred))
 
-        # 블렌딩
+        # 12) 블렌딩 및 cold-start 판정
         blended = coverage * raw_pred + (1.0 - coverage) * BASELINE_ACC
         cold_start_flag = not (active_days >= COLD_DAYS_OK or attempts >= COLD_ATTEMPTS_OK)
-        
+
         print(f"[DEBUG] Cold start 판정: {cold_start_flag}")
         print(f"[DEBUG] Coverage: {coverage}, Raw pred: {raw_pred}, Blended: {blended}")
 
@@ -309,9 +308,9 @@ def predict_accuracy_live(
             "cold_start": cold_start_flag,
             "ui": {"badges": ["초기 예측 — 더 많은 풀이가 쌓일수록 정확도가 올라가요."] if cold_start_flag else []}
         }
+
     except HTTPException:
-        # 이미 의미있는 detail을 설정한 경우 그대로 전달
         raise
     except Exception as e:
-        # 어디서든 터지면 JSON detail로 보여주기
+        # tz 관련 오류 메시지를 그대로 노출해 디버깅 용이
         raise HTTPException(status_code=500, detail=f"[API] {type(e).__name__}: {e}")
