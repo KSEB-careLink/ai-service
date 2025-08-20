@@ -7,41 +7,41 @@
 ## 🚀 핵심 기능
 
 ### 1) LLM 기반 콘텐츠 생성
-- **회상 문장 생성**: `generate_reminder_sentence(patient_name, photo_description, relation, tone, image_path)` :contentReference[oaicite:0]{index=0}
-- **퀴즈 생성(3문항)**: `generate_quiz_only(patient_name, photo_description, relation, tone, image_path)` :contentReference[oaicite:1]{index=1}
+- **회상 문장 생성**: `generate_reminder_sentence(patient_name, photo_description, relation, tone, image_path)` 
+- **퀴즈 생성(3문항)**: `generate_quiz_only(patient_name, photo_description, relation, tone, image_path)` 
 - **키워드 추출**  
   - 설명 기반: `extract_terms(photo_description)`  
   - 이미지 기반: `extract_visible_terms_from_image(image_path)`  
 
 #### 엔드포인트
-- `POST /generate-reminder` → 회상 문장 + TTS(mp3) + Firebase 업로드(URL 반환) :contentReference[oaicite:2]{index=2}
-- `POST /generate-quiz` → 3개 퀴즈 + 각 문항 TTS(mp3) + 업로드(URL 반환) :contentReference[oaicite:3]{index=3}
+- `POST /generate-reminder` → 회상 문장 + TTS(mp3) + Firebase 업로드(URL 반환) 
+- `POST /generate-quiz` → 3개 퀴즈 + 각 문항 TTS(mp3) + 업로드(URL 반환) 
 
 ---
 
 ### 2) 음성 합성(TTS)
-- **텍스트→음성**: `text_to_speech(text, voice_id, file_name="output.mp3")` :contentReference[oaicite:4]{index=4}
-- **속도 보정**: `process_audio_speed(input_path, output_path, speed=0.8)` :contentReference[oaicite:5]{index=5}
-- **보이스 등록(ElevenLabs)**: `create_voice(voice_name, file_path)` :contentReference[oaicite:6]{index=6}
+- **텍스트→음성**: `text_to_speech(text, voice_id, file_name="output.mp3")` 
+- **속도 보정**: `process_audio_speed(input_path, output_path, speed=0.8)` 
+- **보이스 등록(ElevenLabs)**: `create_voice(voice_name, file_path)` 
 
 #### 엔드포인트
-- `POST /speech` → 일반 텍스트를 TTS 변환 → 속도 보정 후 Firebase 업로드(URL 반환) :contentReference[oaicite:7]{index=7}
+- `POST /speech` → 일반 텍스트를 TTS 변환 → 속도 보정 후 Firebase 업로드(URL 반환)
 
 ---
 
 ### 3) 보호자 음성 등록 & 전처리
 보호자의 음성을 ElevenLabs에 등록하기 전에, **잡음 제거·VAD(Voice Activity Detection)·음질 보정** 과정을 수행합니다.
 
-- **Firestore 업데이트**: `update_firestore_voice_id(guardian_uid, new_voice_id)` → 보호자 Document에 voiceId 저장 :contentReference[oaicite:1]{index=1}
-- **ElevenLabs 등록**: `register_voice(file_path, voice_name, guardian_uid)` → 음성 파일을 ElevenLabs Voice로 등록하고 `voice_id` 발급 :contentReference[oaicite:2]{index=2}
-- **전처리 파이프라인**: `preprocess_for_elevenlabs(input_mp3)` :contentReference[oaicite:3]{index=3}
+- **Firestore 업데이트**: `update_firestore_voice_id(guardian_uid, new_voice_id)` → 보호자 Document에 voiceId 저장 
+- **ElevenLabs 등록**: `register_voice(file_path, voice_name, guardian_uid)` → 음성 파일을 ElevenLabs Voice로 등록하고 `voice_id` 발급 
+- **전처리 파이프라인**: `preprocess_for_elevenlabs(input_mp3)` 
   1. **MP3 → WAV 변환**: `ffmpeg` 사용  
   2. **VoiceFixer 복원**: `vf.restore()` 로 음성 잡음 제거 및 품질 향상  
   3. **VAD(Voice Activity Detection)**: `torchaudio.transforms.Vad` 로 무음 제거 및 발화 구간 추출  
   4. **최종 MP3 변환**: 고역/저역 필터링, 샘플링 레이트 다운샘플링, 모노 채널 변환  
 
 #### 엔드포인트
-- `POST /register-voice` :contentReference[oaicite:4]{index=4}  
+- `POST /register-voice`
   - 보호자 음성을 업로드  
   - VoiceFixer + VAD 기반 전처리 후 Firebase Storage 업로드  
   - ElevenLabs Voice 등록 → `voice_id` 발급  
@@ -50,14 +50,15 @@
 ---
 
 ### 4) 월 단위 정답률 예측(LSTM)
-- **실시간 예측**: `/predict-accuracy-live` :contentReference[oaicite:12]{index=12}  
+- **실시간 예측**: `/predict-accuracy-live` 
   - Node API에서 퀴즈 로그 로드 → `_make_daily` 일 집계 → `_build_features` 윈도우 특징 생성 → LSTM 추론  
   - 데이터 부족 시 Cold-start 블렌딩(`BASELINE_ACC`) 적용
-- **모델 구조**: `class LSTMReg(nn.Module)` (입력 9차원: 정답률·응답시간·요일 one-hot 7) :contentReference[oaicite:13]{index=13}:contentReference[oaicite:14]{index=14}
+- **모델 구조**: `class LSTMReg(nn.Module)` (입력 9차원: 정답률·응답시간·요일 one-hot 7)
 
 #### 학습/평가 스크립트
-- `train_lstm_daily_seq.py` : 데이터 전처리 + 학습/검증 + 모델 저장 :contentReference[oaicite:15]{index=15}
-- `eval_user_months.py` : 월 단위 예측/평가/CSV·JSON 저장 :contentReference[oaicite:16]{index=16}
+- `train_lstm_daily_seq.py` : 데이터 전처리 + 학습/검증 + 모델 저장 
+- `eval_user_months.py` : 월 단위 예측/평가/CSV·JSON 저장
+- `tune.py' : 하이퍼파라미터 튜닝 
 
 ---
 
@@ -102,7 +103,7 @@
 
 4. **정답률 예측** (`/predict-accuracy-live`)  
    → Node API 로그 기반으로 최근 W일 데이터 집계  
-   → LSTM 추론 + Cold-start 보정 → 월 단위 정답률 반환  
+   → LSTM 추론 + Cold-start 보정 → 다음 날 예상 정답률 반환  
 
 ---
 
