@@ -20,7 +20,7 @@
 ```bash
 project/
 │── quiz_logs.csv          # 입력 데이터 (필수)
-│── main.py                # 전체 학습/예측 스크립트
+│── quiz_froglstm.py                # 전체 학습/예측 스크립트
 │── best_model_10d.pt      # 학습된 모델 가중치 (저장됨)
 │── predictions.csv        # 최종 예측 결과
 │── training_curves.png    # 학습 곡선 시각화
