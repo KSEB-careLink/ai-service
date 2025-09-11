@@ -49,7 +49,7 @@
 
 ---
 
-### 4) 월 단위 정답률 예측(LSTM)
+### 4) 향후 10일 및 월 단위 정답률 예측(LSTM) 
 - **실시간 예측**: `/predict-accuracy-live` 
   - Node API에서 퀴즈 로그 로드 → `_make_daily` 일 집계 → `_build_features` 윈도우 특징 생성 → LSTM 추론  
   - 데이터 부족 시 Cold-start 블렌딩(`BASELINE_ACC`) 적용
@@ -71,7 +71,7 @@
 | POST   | `/generate-quiz` | 퀴즈 3개 생성 → 각 TTS → Firebase 업로드 (URL 반환) |
 | POST   | `/speech` | 자유 텍스트 TTS 변환 → Firebase 업로드 (URL 반환) |
 | POST   | `/register-voice` | 보호자 음성 **전처리(VoiceFixer+VAD+ffmpeg)** → ElevenLabs 등록 → Firestore 저장 |
-| GET    | `/predict-accuracy-live` | 환자 월 정답률 예측(LSTM) |
+| GET    | `/predict-accuracy-live` | 환자 향후 10일, 월 정답률 예측(LSTM) |
 
 ---
 
@@ -103,7 +103,7 @@
 
 4. **정답률 예측** (`/predict-accuracy-live`)  
    → Node API 로그 기반으로 최근 W일 데이터 집계  
-   → LSTM 추론 + Cold-start 보정 → 다음 날 예상 정답률 반환  
+   → LSTM 추론 + Cold-start 보정 → 다음 10일, 이번 달 예상 정답률 반환  
 
 ---
 
