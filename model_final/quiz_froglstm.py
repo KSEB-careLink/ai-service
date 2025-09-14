@@ -31,23 +31,23 @@ def load_and_preprocess(path):
           )
           .reset_index()
     )
-    agg["weekday"] = pd.to_datetime(agg["date"]).dt.weekday
-    agg = pd.get_dummies(agg, columns=["weekday"])
-
-    def fill_dates(g):
-        dates = pd.date_range(g.date.min(), g.date.max())
-        filled = (
-            g.set_index("date")
-             .reindex(dates)
-             .ffill().bfill()
-             .reset_index()
-             .rename(columns={"index":"date"})
-        )
-        filled["patient_id"] = g.name
-        return filled
-
     agg = agg.groupby("patient_id", group_keys=False).apply(fill_dates).reset_index(drop=True)
     return agg
+
+def fill_dates(g):
+    dates = pd.date_range(g.date.min(), g.date.max())
+    filled = (
+        g.set_index("date")
+         .reindex(dates)
+         .interpolate(method="linear")
+         .bfill().ffill()
+         .reset_index()
+         .rename(columns={"index":"date"})
+    )
+    filled["patient_id"] = g.name
+    if "correct_rate" in filled.columns:
+        filled["correct_rate"] = filled["correct_rate"].clip(0,1)
+    return filled
 
 class SequenceDataset(Dataset):
     def __init__(self, df, window, horizon, scaler=None):
@@ -67,9 +67,13 @@ class SequenceDataset(Dataset):
             L = len(data)
             for i in range(L - self.window - self.horizon + 1):
                 seq_x = data[i:i+self.window]
-                future = data[i+self.window:i+self.window+self.horizon]
+                future_correct = group["correct_rate"].iloc[i+self.window : i+self.window+self.horizon].values
+                pred_month = group["date"].iloc[i+self.window]
+                month_mask = pd.to_datetime(group["date"]).dt.month == pd.to_datetime(pred_month).month
+                month_avg = group.loc[month_mask, "correct_rate"].mean()
+                y_vec = np.concatenate([future_correct, [month_avg]])
                 Xs.append(seq_x)
-                ys.append(future[:,0].mean())
+                ys.append(y_vec)
                 infos.append({
                     "patient_id": pid,
                     "input_start": str(group["date"].iloc[i]),
@@ -79,7 +83,7 @@ class SequenceDataset(Dataset):
                 })
         return (
             torch.tensor(np.stack(Xs), dtype=torch.float32),
-            torch.tensor(ys, dtype=torch.float32).unsqueeze(1),
+            torch.tensor(np.stack(ys), dtype=torch.float32),
             infos
         )
 
@@ -97,7 +101,7 @@ class LSTMPredictor(nn.Module):
         self.fc = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim//2),
             nn.ReLU(),
-            nn.Linear(hidden_dim//2, 1)
+            nn.Linear(hidden_dim//2, HORIZON+1)
         )
 
     def forward(self, x):
@@ -125,8 +129,10 @@ def eval_epoch(model, loader, criterion):
         for X, y, _ in loader:
             X, y = X.to(DEVICE), y.to(DEVICE)
             pred = model(X)
-            total_mse += criterion(pred, y).item()*X.size(0)
-            total_mae += torch.abs(pred-y).sum().item()
+            pred_mean10 = pred[:,:HORIZON].mean(dim=1, keepdim=True)
+            true_mean10 = y[:,:HORIZON].mean(dim=1, keepdim=True)
+            total_mse += criterion(pred_mean10, true_mean10).item()*X.size(0)
+            total_mae += torch.abs(pred_mean10-true_mean10).sum().item()
     return total_mse/len(loader.dataset), total_mae/len(loader.dataset)
 
 def predict_all(model, dataset):
@@ -135,16 +141,19 @@ def predict_all(model, dataset):
     with torch.no_grad():
         for i in range(len(dataset)):
             X = dataset.X[i].unsqueeze(0).to(DEVICE)
-            pred = torch.sigmoid(model(X)).item()
+            pred = torch.sigmoid(model(X)).cpu().numpy().flatten()
             info = dataset.info[i]
-            results.append({
+            res = {
                 "patient_id": info["patient_id"],
                 "input_start": info["input_start"],
                 "input_end": info["input_end"],
                 "pred_start": info["pred_start"],
                 "pred_end": info["pred_end"],
-                "pred_10d": pred
-            })
+            }
+            for d in range(HORIZON):
+                res[f"pred_day{d+1}"] = pred[d]
+            res["pred_month_avg"] = pred[-1]
+            results.append(res)
     return pd.DataFrame(results)
 
 def main():
