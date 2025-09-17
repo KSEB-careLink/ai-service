@@ -46,10 +46,7 @@ class LSTMRegMulti(nn.Module):
     def forward(self, x):
         _, (hn, _) = self.lstm(x)
         last = hn[-1]
-        return self.head_daily(last), self.head_month(last)
-
-MODEL_DIR = os.getenv("MODEL_DIR", "model_final/data_daily_w45")
-CKPT_PATH = os.getenv("MODEL_CKPT", os.path.join(MODEL_DIR, "model_daily_10_and_month.pth"))
+        return self.head_daily(l름 수정 필요하면 하기 
 if not os.path.exists(CKPT_PATH):
     raise RuntimeError(f"[predict-accuracy-live] model checkpoint not found: {CKPT_PATH}")
 
