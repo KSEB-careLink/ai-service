@@ -50,18 +50,7 @@
 ---
 
 ### 4) 향후 10일 및 월 단위 정답률 예측(LSTM) 
-- **실시간 예측**: `/predict-accuracy-live` 
-  - Node API에서 퀴즈 로그 로드 → `_make_daily` 일 집계 → `_build_features` 윈도우 특징 생성 → LSTM 추론  
-  - 데이터 부족 시 Cold-start 블렌딩(`BASELINE_ACC`) 적용
-- **모델 구조**: `class LSTMReg(nn.Module)` (입력 9차원: 정답률·응답시간·요일 one-hot 7)
-
-#### 학습/평가 스크립트
-- `train_lstm_daily_seq.py` : 데이터 전처리 + 학습/검증 + 모델 저장 
-- `eval_user_months.py` : 월 단위 예측/평가/CSV·JSON 저장
-- `tune.py' : 하이퍼파라미터 튜닝 
-
----
-
+- model_final 안에 있는 README 참고
 
 ## 📡 API 엔드포인트 요약
 
